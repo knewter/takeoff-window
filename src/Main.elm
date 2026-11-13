@@ -208,7 +208,27 @@ updateUi msg app =
             emit { app | ui = { ui | selectedId = Just id } } Cmd.none
 
         DismissHint ->
-            emit (mapUi (\base -> { base | hintSeen = True }) app) (outgoing (Encode.object [ ( "tag", Encode.string "dismissHint" ) ]))
+            let
+                base =
+                    app.ui
+
+                shown =
+                    maybeEvent { base | hintSeen = True }
+            in
+            emit { app | ui = shown } (outgoing (Encode.object [ ( "tag", Encode.string "dismissHint" ) ]))
+
+        DismissBanner ->
+            case app.ui.game of
+                Just game ->
+                    case game.lastEvent of
+                        Just ev ->
+                            emit (mapUi (\base -> { base | bannerKey = Just (ev.id ++ "@" ++ ev.when) }) app) Cmd.none
+
+                        Nothing ->
+                            ( app, Cmd.none )
+
+                Nothing ->
+                    ( app, Cmd.none )
 
         ViewPlayer id ->
             emit { app | ui = { ui | viewingPlayer = id, selectedId = Just "patron", tab = View.TabTree } } Cmd.none
@@ -520,7 +540,7 @@ maybeEvent ui =
                         key =
                             ev.id ++ "@" ++ ev.when
                     in
-                    if ui.seenEvent /= Just key && not (Engine.current game).isAI && ui.modal == View.NoModal && ui.screen == View.Play && not ui.driveAll then
+                    if ui.hintSeen && ui.seenEvent /= Just key && not (Engine.current game).isAI && ui.modal == View.NoModal && ui.screen == View.Play && not ui.driveAll then
                         { ui | seenEvent = Just key, modal = View.EventModal }
 
                     else

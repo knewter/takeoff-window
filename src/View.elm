@@ -67,6 +67,7 @@ type alias Model =
     , driveAll : Bool
     , actionsReady : Bool
     , hintSeen : Bool
+    , bannerKey : Maybe String
     }
 
 
@@ -102,6 +103,7 @@ type Msg
     | ShowHelp
     | ShowEvent
     | DismissHint
+    | DismissBanner
     | OpenGoal
     | SpeedUp
     | Backdrop
@@ -126,6 +128,7 @@ initUi width height seedInput =
     , driveAll = False
     , actionsReady = True
     , hintSeen = False
+    , bannerKey = Nothing
     }
 
 
@@ -289,7 +292,7 @@ viewDesktop model game =
     in
     div [ style "display" "flex", style "flex-direction" "column", style "height" "100%", style "min-height" "0" ]
         [ topbar model game False
-        , eventBanner game
+        , eventBanner model game
         , turnHint model
         , div [ class "board" ]
             [ div [ class "col" ]
@@ -336,14 +339,9 @@ viewPhone model game =
         stage =
             case model.tab of
                 TabTree ->
-                    div []
-                        [ youCard you game True
-                        , raceList game
+                    div [ class "tree-stage" ]
+                        [ youLine you
                         , viewBanner viewer
-                        , div [ class "panel-head" ]
-                            [ span [] [ text (if viewer.id == 0 then "Your structure" else (factionOf viewer).short ++ " · structure") ]
-                            , span [] [ text (String.fromInt (Engine.groupCount viewer) ++ " groups") ]
-                            ]
                         , div [ class "tree-mobile" ]
                             [ div [ class "tree-scroller" ] [ treeSvg game viewer (viewer.id == 0 && not game.gameOver && not model.busy) True (landscape model) model.selectedId ]
                             , treeList game viewer model.selectedId
@@ -352,7 +350,8 @@ viewPhone model game =
 
                 TabRivals ->
                     div []
-                        [ div [ class "panel-head" ] [ span [] [ text "Rivals" ], span [] [ text "Tap a name to view their tree" ] ]
+                        [ raceList game
+                        , div [ class "panel-head" ] [ span [] [ text "Rivals" ], span [] [ text "Tap a name to view their tree" ] ]
                         , div [ class "rivals" ] (rivalCards model game)
                         ]
 
@@ -381,13 +380,13 @@ viewPhone model game =
     in
     div [ class "play-root", style "display" "flex", style "flex-direction" "column", style "height" "100%", style "min-height" "0" ]
         [ topbar model game True
-        , eventBanner game
+        , eventBanner model game
         , turnHint model
         , div [ class "phone-play" ]
             [ div [ class "phone-stage" ] [ stage ]
             , actionBar model game
             ]
-        , tabBar model.tab
+        , tabBar model.tab model.modal
         ]
 
 
@@ -435,6 +434,21 @@ topbar model game isPhone =
 
           else
             button [ class "btn btn-sm btn-ghost", onClick GotoTitle ] [ text "New Game" ]
+        ]
+
+
+youLine : Player -> Html Msg
+youLine you =
+    let
+        f =
+            factionOf you
+    in
+    div [ class "you-line" ]
+        [ span [ class "you-line-name", style "color" f.color ] [ text f.short ]
+        , span [] [ text ("$" ++ String.fromInt (Engine.totalMoney you)) ]
+        , span [] [ text ("C" ++ String.fromInt you.compute) ]
+        , span [] [ text (String.fromInt (Engine.groupCount you) ++ " groups") ]
+        , button [ class "goal-open inline", onClick OpenGoal, A.title "Open your goal" ] [ text "Goal" ]
         ]
 
 
@@ -573,7 +587,10 @@ actionBar model game =
                 ]
             , span [ class "strip-money" ] [ text ("$" ++ String.fromInt (Engine.totalMoney you)) ]
             ]
-        , div [ class "strip-chips" ] (stripChips game you yourTurn selected offers model)
+        , div [ class "strip-chips" ]
+            [ div [ class "strip-verbs" ] (List.map chip (verbChips offers))
+            , div [ class "strip-tail" ] (tailChips game you yourTurn selected offers model)
+            ]
         ]
 
 
@@ -642,38 +659,38 @@ type alias Offer =
     }
 
 
-stripChips : Game -> Player -> Bool -> Maybe Group -> List Offer -> Model -> List (Html Msg)
-stripChips game you yourTurn selected offers model =
+verbChips : List Offer -> List Offer
+verbChips offers =
+    List.filter
+        (\o ->
+            o.enabled
+                && (o.band == "attack" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release" || o.label == "Leak Weights")
+        )
+        offers
+
+
+tailChips : Game -> Player -> Bool -> Maybe Group -> List Offer -> Model -> List (Html Msg)
+tailChips game you yourTurn selected offers model =
     let
-        contextual =
-            List.filter (\o -> o.band == "attack" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release") offers
-
-        shown =
-            List.filter .enabled contextual
-
         hint =
             if not yourTurn then
                 if game.gameOver then
                     "Window closed"
 
                 else
-                    "Waiting on a rival"
+                    "Waiting"
 
             else if selected == Nothing then
-                if you.attackedThisTurn && Engine.totalMoney you >= 2 then
-                    "Lean next"
+                "Select a group"
 
-                else
-                    "Select a group"
-
-            else if you.attackedThisTurn && Engine.totalMoney you >= 2 then
-                "Lean next"
+            else if you.attackedThisTurn then
+                "Attack used"
 
             else
                 ""
 
-        extras =
-            List.filter (\o -> o.label == "Pass" || (o.label == "Leak Weights" && you.factionId == "open-wave")) offers
+        pass =
+            List.filter (\o -> o.label == "Pass" && o.enabled) offers
     in
     (if hint == "" then
         []
@@ -681,7 +698,7 @@ stripChips game you yourTurn selected offers model =
      else
         [ span [ class "strip-hint", A.title hint ] [ text hint ] ]
     )
-        ++ List.map chip (shown ++ List.filter .enabled extras)
+        ++ List.map chip pass
         ++ (if game.gameOver then
                 [ button [ class "chip primary", onClick ShowVictory ] [ text "Outcome" ] ]
 
@@ -1103,15 +1120,25 @@ rivalCards model game =
             )
 
 
-eventBanner : Game -> Html Msg
-eventBanner game =
+eventBanner : Model -> Game -> Html Msg
+eventBanner model game =
     case game.lastEvent of
         Just ev ->
-            div [ class "event-banner", onClick ShowEvent ]
-                [ div [ class "k" ] [ text ("Headline · " ++ ev.when) ]
-                , h3 [] [ text ev.name ]
-                , p [] [ text ev.flavor ]
-                ]
+            let
+                key =
+                    ev.id ++ "@" ++ ev.when
+            in
+            if model.bannerKey == Just key then
+                text ""
+
+            else
+                div [ class "event-banner" ]
+                    [ button [ class "banner-x", onClick DismissBanner, A.title "Hide headline" ] [ text "×" ]
+                    , div [ class "banner-copy", onClick ShowEvent ]
+                        [ div [ class "k" ] [ text ("Headline · " ++ ev.when) ]
+                        , h3 [] [ text ev.name ]
+                        ]
+                    ]
 
         Nothing ->
             text ""
@@ -1211,15 +1238,28 @@ timeline game =
     div [ class "timeline" ] dots
 
 
-tabBar : Tab -> Html Msg
-tabBar current =
+tabBar : Tab -> Modal -> Html Msg
+tabBar current modal =
     nav [ class "tabbar" ]
         (List.map
             (\( id, label ) ->
-                button [ classList [ ( "on", current == id ) ], onClick (SetTab id) ] [ text label ]
+                button [ classList [ ( "on", current == id || tabLit modal id ) ], onClick (SetTab id) ] [ text label ]
             )
             [ ( TabTree, "Tree" ), ( TabRivals, "Rivals" ), ( TabMarket, "Open" ), ( TabLog, "Log" ), ( TabRules, "Rules" ) ]
         )
+
+
+tabLit : Modal -> Tab -> Bool
+tabLit modal tab =
+    case ( modal, tab ) of
+        ( Drawer "log", TabLog ) ->
+            True
+
+        ( Drawer "rules", TabRules ) ->
+            True
+
+        _ ->
+            False
 
 
 viewBanner : Player -> Html Msg
@@ -1776,6 +1816,7 @@ shell model _ inner =
         [ class "modal-back sheet-back"
         , A.attribute "data-sheet" ""
         , A.attribute "data-sheet-dismiss" (if canDismiss model.modal then "1" else "0")
+        , A.attribute "data-sheet-open" (openSnap model.modal)
         , onClick Backdrop
         ]
         [ div
@@ -1804,6 +1845,38 @@ canDismiss modal =
 
         _ ->
             True
+
+
+openSnap : Modal -> String
+openSnap modal =
+    case modal of
+        AttackModal _ ->
+            "full"
+
+        ReorgModal _ _ ->
+            "full"
+
+        VictoryModal ->
+            "full"
+
+        RollResult _ ->
+            "full"
+
+        _ ->
+            "half"
+
+
+kindLabel : Kind -> String
+kindLabel kind =
+    case kind of
+        Control ->
+            "Control"
+
+        Neutralize ->
+            "Neutralize"
+
+        Destroy ->
+            "Destroy"
 
 
 helpBody : Msg -> Html Msg
@@ -1907,7 +1980,7 @@ attackBody model form spinning done =
                                 Maybe.withDefault { a = 1, b = 1, sum = 2, strength = 0, success = False, kind = "", targetName = "", attackerName = "" } game.lastRoll
                         in
                         div []
-                            [ div [ class "k" ] [ text (Engine.kindKey form.kind) ]
+                            [ div [ class "k" ] [ text (kindLabel form.kind) ]
                             , h2 [] [ text card.name ]
                             , div [ class "dice-row" ]
                                 [ die (if spinning then 3 else roll.a) spinning
@@ -1964,14 +2037,14 @@ attackBody model form spinning done =
                         in
                         if List.isEmpty usable then
                             div []
-                                [ h2 [] [ text ((Engine.kindKey form.kind) ++ " " ++ card.name) ]
+                                [ h2 [] [ text (kindLabel form.kind ++ " " ++ card.name) ]
                                 , p [ class "lead" ] [ text "No legal attacker." ]
                                 , button [ class "btn", onClick CloseModal ] [ text "Close" ]
                                 ]
 
                         else
                             div []
-                                [ div [ class "k" ] [ text ((Engine.kindKey form.kind) ++ " attack") ]
+                                [ h2 [] [ text (kindLabel form.kind) ]
                                 , h2 [] [ text card.name ]
                                 , p [ class "lead" ] [ text (card.flavor ++ (if card.parody then " (A parody card. Satire, not a factual claim.)" else "")) ]
                                 , div [ class "attacker-picks" ]

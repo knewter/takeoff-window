@@ -1565,7 +1565,7 @@ body.phone .modal.sheet {
   box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
   box-sizing: border-box;
 }
-body.phone .modal::before {
+body.phone .modal:not(.sheet)::before {
   content: "";
   display: block;
   width: 36px;
@@ -1670,7 +1670,7 @@ body.phone.landscape-phone .tree-scroller { flex: 1; min-height: 0; }
 body.phone.landscape-phone .tree-mobile { flex: 1; min-height: 0; }
 body.phone.landscape-phone .phone-stage[data-tab="tree"] { overflow: hidden; }
 body.phone.landscape-phone .tabbar button { min-height: 44px; padding: 2px; }
-body.phone.landscape-phone .tabbar { padding-bottom: 2px; }
+body.phone.landscape-phone .tabbar { padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px)); }
 body.phone.landscape-phone .dock { padding: 4px 10px; min-height: 48px; }
 body.phone.landscape-phone .dock-info h3 { font-size: 16px; }
 body.phone.landscape-phone .modal,
@@ -1708,8 +1708,19 @@ body.phone.landscape-phone .modal::before { margin: 0 auto 6px; }
 
 /* Landscape title: keep New Game in view without scrolling */
 body.phone.landscape-phone .screen-center {
-  justify-content: center;
-  padding: 8px 28px 12px;
+  justify-content: flex-start;
+  align-items: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+  height: 100%;
+  max-height: 100dvh;
+  padding: 8px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+}
+body.phone.landscape-phone .faction-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  padding-bottom: 16px;
 }
 body.phone.landscape-phone .wordmark { font-size: clamp(36px, 12vh, 52px); }
 body.phone.landscape-phone .subtitle { font-size: 16px; margin-top: 6px; }
@@ -2056,4 +2067,93 @@ body.phone .strip-status { font-size: 11px; }
 body.phone .chip { height: 44px; }
 body.phone.landscape-phone .turn-hint { flex-direction: row; margin: 4px 8px 0; padding: 4px 8px; }
 body.phone.landscape-phone .turn-hint p { -webkit-line-clamp: 1; font-size: 12px; }
-body.phone.landscape-phone .race { margin: 0 8px 4px; }
+body.phone .tabbar { padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+body.phone .action-bar.strip {
+  padding: 6px 8px;
+  height: 64px;
+  max-height: 64px;
+  min-height: 56px;
+}
+.strip-chips { overflow: hidden; flex-wrap: nowrap; }
+.strip-verbs, .strip-tail { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.strip-verbs { flex: 1 1 auto; overflow: hidden; }
+.strip-tail { flex: 0 0 auto; margin-left: auto; }
+.strip-verbs .chip { min-width: 0; padding: 0 12px; }
+.you-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 12px 4px;
+  min-height: 36px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.you-line-name { font-family: var(--font-display); font-size: 18px; font-weight: 600; }
+.goal-open.inline { position: static; margin-left: auto; height: 32px; }
+.event-banner { display: flex; align-items: center; gap: 8px; }
+.event-banner .banner-copy { flex: 1; min-width: 0; cursor: pointer; }
+.event-banner h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner-x {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+}
+.sheet-foot {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  margin: 0;
+  position: relative;
+  z-index: 3;
+}
+.sheet-foot .btn { min-height: 48px; flex: 1; }
+body.phone .modal.sheet::before,
+body.phone.landscape-phone .modal::before { display: none; content: none; }
+.sheet-handle { height: 20px; width: 100%; margin: 0; }
+.sheet-handle::after { top: 8px; width: 36px; left: 50%; right: auto; margin-left: -18px; height: 4px; }
+body:not(.phone) .modal-back.sheet-back {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+body:not(.phone) .modal.sheet {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  height: auto !important;
+  max-height: calc(100dvh - 48px);
+  width: min(560px, calc(100vw - 48px));
+  transform: none !important;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body:not(.phone) .sheet-handle { display: none; }
+body:not(.phone) .sheet-body {
+  overflow-y: auto;
+  max-height: calc(100dvh - 148px);
+}
+body:not(.phone) .sheet-body .btn-row,
+body.phone .sheet-foot {
+  position: sticky;
+  bottom: 0;
+}
+body.phone .modal.sheet {
+  overflow: hidden;
+  padding-bottom: 0;
+  max-height: 92dvh;
+}
+body.phone.landscape-phone .you-line { margin: 2px 8px; }
+body.phone.landscape-phone .event-banner { padding: 2px 8px; }
+body.phone.landscape-phone .event-banner h3 { font-size: 14px; }
