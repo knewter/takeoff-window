@@ -1244,7 +1244,7 @@ body.phone .phone-stage {
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  padding-bottom: 5rem;
+  padding-bottom: 0.75rem;
 }
 body.phone .phone-stage .panel-head { padding: 10px 14px 6px; font-size: 11px; }
 
@@ -2198,24 +2198,54 @@ body.phone .modal.sheet[data-snap="fit"] {
   height: auto !important;
   max-height: 92dvh;
 }
-body.phone .modal.sheet[data-snap="fit"] .sheet-body,
+body.phone .modal.sheet[data-snap="fit"] .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 body.phone .modal.sheet[data-snap="fit"] .sheet-body > div {
   flex: 0 0 auto;
   overflow: visible;
+  padding-bottom: 4.5rem;
+}
+body:not(.phone) .sheet-body {
+  padding-bottom: 0;
+}
+body:not(.phone) .sheet-body > div {
+  padding-bottom: 4.5rem;
 }
 body.phone.landscape-phone .you-line { margin: 2px 8px; }
+body.phone.landscape-phone .coach { display: none; }
+body.phone.landscape-phone .event-banner { display: none; }
+body.phone.landscape-phone .score-secret,
+body.phone.landscape-phone .score-bar { display: none; }
+body.phone.landscape-phone .score-cell { padding: 2px 4px; }
+body.phone.landscape-phone .topbar { padding: 2px 8px 4px; gap: 2px; }
+body.phone.landscape-phone .hud-meter { font-size: 0.7rem; min-height: 28px; padding: 1px 6px; }
+body.phone.landscape-phone .turn-dock { padding: 2px 8px; }
+body.phone.landscape-phone .end-turn { min-height: 2.25rem; font-size: 0.85rem; padding: 0.2rem 0.7rem; }
+body.phone.landscape-phone .market { padding: 4px 8px 8px; gap: 6px; }
+body.phone.landscape-phone .market .gcard .art { height: 28px; }
+body.phone.landscape-phone .market .gcard .title,
+body.phone.landscape-phone .market .gcard .pills { display: none; }
+body.phone.landscape-phone .market .gcard .body { padding: 4px 8px 6px; }
+body.phone.landscape-phone .tabbar button { min-height: 36px; font-size: 9px; }
 
-.hud { display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 36px; flex-wrap: wrap; }
+.hud { display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 32px; flex-wrap: nowrap; }
+.hud-meters { display: flex; gap: 6px; width: 100%; }
 .hud-meter, .hud-moves {
   border: 1px solid var(--border);
   background: var(--surface);
   color: inherit;
   font: inherit;
-  min-height: 36px;
-  padding: 4px 8px;
+  font-size: 0.8rem;
+  min-height: 32px;
+  padding: 2px 8px;
   border-radius: 0;
+  white-space: nowrap;
 }
-.hud-moves { margin-left: auto; }
+.hud-meter { flex: 1; min-width: 0; text-align: left; }
+.hud-moves { margin-left: auto; flex: 0 0 auto; }
 .delta.up { color: var(--green); }
 .delta.down { color: var(--red); }
 .delta.flat { color: var(--muted); }
@@ -2267,11 +2297,21 @@ body.phone.landscape-phone .you-line { margin: 2px 8px; }
 }
 .pip.on { background: var(--text); }
 .pip.spent { background: var(--red); border-color: var(--red); }
+.turn-dock {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 0.4rem 0.75rem;
+  z-index: 5;
+}
+.turn-dock:not(:has(.end-turn)) { display: none; }
 .end-turn {
-  align-self: flex-end;
-  margin: 0.5rem 1rem 0.75rem;
-  min-height: 3rem;
-  padding: 0.6rem 1rem;
+  margin: 0;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.9rem;
   border: 1px solid var(--border-s);
   border-radius: 999px;
   background: var(--surface-2);
@@ -2284,7 +2324,26 @@ body.phone.landscape-phone .you-line { margin: 2px 8px; }
   color: #1a1408;
   border-color: var(--amber);
 }
-body.phone .end-turn { margin: 6px 12px; }
+.gcard.coach-target {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+  animation: coach-pulse 1.2s ease-in-out infinite;
+}
+@keyframes coach-pulse {
+  0%, 100% { outline-color: var(--amber); }
+  50% { outline-color: transparent; }
+}
+.coach-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background: var(--amber);
+  color: #1a1408;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 6px;
+}
 .coach {
   margin: 0 12px 6px;
   padding: 8px 12px;

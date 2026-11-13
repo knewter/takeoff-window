@@ -444,6 +444,22 @@ suite =
                             }
                     in
                     expectContains "liquid sovereign" (Engine.victory rich 0)
+            , test "a settled group makes that patron the public leader" <|
+                \_ ->
+                    let
+                        ahead =
+                            ownMany "helios" [ "podcast-circuit" ]
+
+                        tied =
+                            ownMany "helios" [ "podcast-circuit" ]
+                                |> (\g -> Engine.ownCard g 1 "soft-landing" Patron)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal [] (Engine.publicLeaders (fresh "helios"))
+                        , \_ -> Expect.equal [ 0 ] (Engine.publicLeaders ahead)
+                        , \_ -> Expect.equal [ 0, 1 ] (Engine.publicLeaders tied)
+                        ]
+                        ()
             ]
         ]
 
