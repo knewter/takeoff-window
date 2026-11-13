@@ -268,16 +268,20 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .board {
   flex: 1;
   display: grid;
-  grid-template-columns: 300px 1fr 340px;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(240px, 340px);
   grid-template-rows: 1fr auto;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   gap: 0;
 }
 .col {
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 .col-right { border-right: 0; border-left: 1px solid var(--border); }
 .col-center { background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent 40%); }
@@ -382,8 +386,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   gap: 8px;
   padding: 0 12px 10px;
   overflow-x: auto;
+  overflow-y: hidden;
   flex-shrink: 0;
   min-height: 148px;
+  min-width: 0;
+  max-width: 100%;
   align-items: stretch;
 }
 .gcard {
@@ -656,11 +663,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 /* Event banner */
 .event-banner {
-  margin: 0 16px;
+  margin: 6px 12px;
   background: linear-gradient(90deg, rgba(155, 125, 255, 0.15), rgba(155, 125, 255, 0.05));
   border: 1px solid rgba(155, 125, 255, 0.35);
   border-radius: 8px;
-  padding: 10px 14px;
+  padding: 6px 12px;
   flex-shrink: 0;
 }
 .event-banner .k {
@@ -670,8 +677,18 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   text-transform: uppercase;
   color: var(--violet);
 }
-.event-banner h3 { font-family: var(--font-display); font-size: 20px; margin: 0; font-weight: 600; }
-.event-banner p { margin: 2px 0 0; font-size: 13px; color: var(--text-dim); font-style: italic; }
+.event-banner h3 { font-family: var(--font-display); font-size: 18px; margin: 0; font-weight: 600; }
+.event-banner p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-style: italic;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tree-wrap { flex: 1; min-height: 140px; min-width: 0; overflow: auto; }
 
 /* Help */
 .help-body { font-size: 14px; line-height: 1.55; color: var(--text-dim); }
@@ -985,7 +1002,9 @@ body.modal-open { overflow: hidden; }
   letter-spacing: 0.08em;
 }
 
-.goal-detail { font-family: var(--font-mono); font-size: 10px; color: var(--cyan); margin-top: 4px; }
+.goal-detail { font-family: var(--font-sans); font-size: 13px; line-height: 1.45; color: var(--text-dim); margin-top: 6px; }
+.goal-detail.race { color: var(--cyan); font-family: var(--font-mono); font-size: 12px; }
+.attack-note { font-size: 12px; color: var(--amber); margin: 0 0 6px; line-height: 1.4; }
 
 .screen-center .setup-note { color: var(--faint); font-size: 12px; margin-top: 8px; }
 
@@ -1753,3 +1772,35 @@ body.phone .faction-footer { display: flex; }
 /* Make sure desktop board is untouched when not .phone */
 body:not(.phone) .phone-play,
 body:not(.phone) .tabbar { display: none !important; }
+
+/* Playtest layout: scroll the patron list clear of the sticky footer,
+   and keep open-field cards inside the center column. */
+@media (min-width: 821px) {
+  .market {
+    flex-wrap: wrap;
+    overflow: visible;
+    min-height: 0;
+    align-content: flex-start;
+  }
+  .gcard {
+    flex: 1 1 150px;
+    width: auto;
+    min-width: 150px;
+    max-width: 188px;
+  }
+}
+
+body.phone .faction-card { overflow: visible; height: auto; }
+body.phone .faction-card .motto {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+body.phone .faction-grid {
+  flex-shrink: 0;
+  width: 100%;
+  padding-bottom: calc(260px + env(safe-area-inset-bottom, 0px));
+}
+body.phone .screen-center { min-height: 0; }
+body.phone .modal .victory-actions { position: sticky; }

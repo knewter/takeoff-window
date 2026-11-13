@@ -15,6 +15,7 @@ module Engine exposing
     , Player
     , Progress
     , agiCompute
+    , aiDefense
     , alignmentsOf
     , applyAction
     , applyIncome
@@ -37,8 +38,10 @@ module Engine exposing
     , longPlanCompute
     , maxAttackSpend
     , ownCard
+    , pressureOn
     , publicGoal
     , socketsUsed
+    , spendWeight
     , suggestSpend
     , totalMoney
     , twoD6Prob
@@ -55,7 +58,12 @@ import Rng
 
 agiCompute : Int
 agiCompute =
-    30
+    20
+
+
+spendWeight : Int
+spendWeight =
+    2
 
 
 longPlanCompute : Int
@@ -65,7 +73,7 @@ longPlanCompute =
 
 crownMoney : Int
 crownMoney =
-    72
+    64
 
 
 publicGoal : Int
@@ -75,12 +83,12 @@ publicGoal =
 
 maxAttackSpend : Int
 maxAttackSpend =
-    3
+    4
 
 
 aimProbability : Float
 aimProbability =
-    0.45
+    0.28
 
 
 contestedPenalty : Int
@@ -131,6 +139,7 @@ type Action
     | Drop String
     | Reorg String Parent
     | Leak
+    | Lean String
 
 
 type alias Group =
@@ -162,6 +171,7 @@ type alias Player =
     , capturedFrontier : List String
     , leaked : Bool
     , controlledThisTurn : Bool
+    , pressure : List ( String, Int )
     , statsControlled : Int
     , statsFailed : Int
     , statsIncome : Int
@@ -217,6 +227,7 @@ type alias Breakdown =
     , res : Int
     , defSpend : Int
     , defT : Int
+    , lean : Int
     , prob : Float
     }
 
@@ -399,6 +410,7 @@ makePlayer id factionId isAI agent name =
     , capturedFrontier = []
     , leaked = False
     , controlledThisTurn = False
+    , pressure = []
     , statsControlled = 0
     , statsFailed = 0
     , statsIncome = 0
@@ -671,33 +683,37 @@ resistanceOf g =
 
 effectiveIncome : Player -> Group -> Int
 effectiveIncome player g =
-    let
-        card =
-            cardOf g
-
-        bumped =
-            if player.factionId == "long-plan" && card.type_ == "chipmaker" then
-                card.income + 1
-
-            else if player.factionId == "crown" && (card.type_ == "power" || card.type_ == "datacenter") then
-                card.income + 1
-
-            else
-                card.income
-
-        hasQueue =
-            List.any (\x -> x.cardId == "interconnect") player.grove
-    in
-    if hasQueue && card.type_ == "power" && card.id /= "interconnect" then
-        bumped + 1
+    if g.privilegedTurns > 0 then
+        0
 
     else
-        bumped
+        let
+            card =
+                cardOf g
+
+            bumped =
+                if player.factionId == "long-plan" && card.type_ == "chipmaker" then
+                    card.income + 1
+
+                else if player.factionId == "crown" && (card.type_ == "power" || card.type_ == "datacenter") then
+                    card.income + 1
+
+                else
+                    card.income
+
+            hasQueue =
+                List.any (\x -> x.cardId == "interconnect") player.grove
+        in
+        if hasQueue && card.type_ == "power" && card.id /= "interconnect" then
+            bumped + 1
+
+        else
+            bumped
 
 
 effectiveCompute : Game -> Group -> Int
 effectiveCompute game g =
-    if game.flags.gpuShortage > 0 then
+    if g.privilegedTurns > 0 || game.flags.gpuShortage > 0 then
         0
 
     else
@@ -1532,23 +1548,26 @@ winReason game p =
     else if p.factionId == "helios" && p.compute >= agiCompute then
         Just (who ++ " " ++ (if verb == "win" then "reach" else "reaches") ++ " takeoff: " ++ String.fromInt p.compute ++ " compute, enough to train the frontier model.")
 
+    else if p.factionId == "helios" && p.compute >= 12 && List.any (\g -> (cardOf g).type_ == "lab") mature && List.any (\g -> (cardOf g).type_ == "chipmaker") mature then
+        Just (who ++ " " ++ verb ++ " by fielding a lab and a chipmaker with " ++ String.fromInt p.compute ++ " compute.")
+
     else if p.factionId == "open-wave" && game.flags.weightsLeak && List.length (aligns "Open") >= 3 then
         Just (who ++ " " ++ verb ++ ": the weights are out, and they control the Open stack.")
 
-    else if p.factionId == "open-wave" && List.any (\g -> g.cardId == "open-weights") all && List.length all >= 4 then
+    else if p.factionId == "open-wave" && List.any (\g -> g.cardId == "open-weights") mature && n >= 4 then
         Just (who ++ " " ++ verb ++ " by making the Open Weights Collective the center of a four-group network.")
 
-    else if p.factionId == "pause" && List.length p.capturedFrontier >= 2 then
-        Just (who ++ " " ++ verb ++ ": two Frontier labs have been pulled off the board.")
+    else if p.factionId == "pause" && List.length p.capturedFrontier >= 3 then
+        Just (who ++ " " ++ verb ++ ": three Frontier labs have been pulled off the board.")
 
     else if p.factionId == "pause" && not (List.isEmpty (types "regulator")) && not (List.isEmpty (types "media")) && n >= 3 then
         Just (who ++ " " ++ verb ++ " by owning the referee, the headline, and a third proxy.")
 
-    else if p.factionId == "directorate" && List.any (\g -> has (cardOf g) "Frontier") mature && not (List.isEmpty (types "regulator")) && n >= 5 then
-        Just (who ++ " " ++ verb ++ ": a Frontier lab, a regulator, and a five-group stack sit in the same structure.")
+    else if p.factionId == "directorate" && List.any (\g -> has (cardOf g) "Frontier") mature && not (List.isEmpty (types "regulator")) && n >= 3 then
+        Just (who ++ " " ++ verb ++ ": a Frontier lab, a regulator, and a three-group stack sit in the same structure.")
 
-    else if p.factionId == "directorate" && n >= 5 && List.length (aligns "Nationalist") >= 2 then
-        Just (who ++ " " ++ verb ++ " with a five-group nationalist stack.")
+    else if p.factionId == "directorate" && n >= 4 && List.length (aligns "Nationalist") >= 2 then
+        Just (who ++ " " ++ verb ++ " with a four-group nationalist stack.")
 
     else if p.factionId == "long-plan" && not (List.isEmpty (types "chipmaker")) && not (List.isEmpty (types "hyperscaler")) && n >= 5 then
         Just (who ++ " " ++ verb ++ ": the fab, the cloud, and a five-group stack are theirs.")
@@ -1559,7 +1578,7 @@ winReason game p =
     else if p.factionId == "crown" && not (List.isEmpty (types "power")) && not (List.isEmpty (types "datacenter")) && not (List.isEmpty (types "chipmaker")) then
         Just (who ++ " " ++ verb ++ " by owning power, concrete, and silicon.")
 
-    else if p.factionId == "crown" && totalMoney p >= crownMoney && n >= 4 then
+    else if p.factionId == "crown" && totalMoney p >= crownMoney && n >= 3 then
         Just (who ++ " " ++ verb ++ " as the liquid sovereign: " ++ String.fromInt (totalMoney p) ++ " money and " ++ String.fromInt n ++ " groups.")
 
     else
@@ -1598,8 +1617,41 @@ goalProgress game p =
 
         ( secretRatio, secretText ) =
             if p.factionId == "helios" then
-                ( min 1 (toFloat p.compute / toFloat agiCompute)
-                , String.fromInt p.compute ++ "/" ++ String.fromInt agiCompute ++ " compute"
+                let
+                    hasLab =
+                        List.any (\g -> (cardOf g).type_ == "lab") mature
+
+                    hasChip =
+                        List.any (\g -> (cardOf g).type_ == "chipmaker") mature
+
+                    stack =
+                        if hasLab && hasChip then
+                            min 1 (toFloat p.compute / 12)
+
+                        else
+                            (if hasLab then 0.25 else 0) + (if hasChip then 0.25 else 0) + min 0.3 (toFloat p.compute / 20)
+                in
+                ( max (min 1 (toFloat p.compute / toFloat agiCompute)) stack
+                , speak p
+                    ++ " "
+                    ++ have p
+                    ++ " "
+                    ++ String.fromInt p.compute
+                    ++ " compute. Helios wins at "
+                    ++ String.fromInt agiCompute
+                    ++ ", or with a lab, a chipmaker, and 12 compute. "
+                    ++ (if hasLab then
+                            speak p ++ " " ++ hold p ++ " a settled lab. "
+
+                        else
+                            speak p ++ " " ++ doNot p ++ " hold a settled lab. "
+                       )
+                    ++ (if hasChip then
+                            speak p ++ " " ++ hold p ++ " a settled chipmaker."
+
+                        else
+                            speak p ++ " " ++ doNot p ++ " hold a settled chipmaker."
+                       )
                 )
 
             else if p.factionId == "open-wave" then
@@ -1612,14 +1664,38 @@ goalProgress game p =
                             min 0.9 ((if game.flags.weightsLeak then 0.4 else 0) + min 0.6 (toFloat openN / 5))
 
                     b =
-                        if hasOW && nAll >= 4 then
+                        if hasOW && n >= 4 then
                             1
 
                         else
-                            (if hasOW then 0.4 else 0) + min 0.55 (toFloat nAll / 8)
+                            (if hasOW then 0.4 else 0) + min 0.55 (toFloat n / 8)
                 in
                 ( max a b
-                , "Leak " ++ (if game.flags.weightsLeak then "yes" else "no") ++ " and " ++ String.fromInt openN ++ "/3 Open groups; or Open Weights + " ++ String.fromInt nAll ++ "/4 groups"
+                , (if game.flags.weightsLeak then
+                    "The weights are already out. "
+
+                   else
+                    "The weights are still sealed. "
+                  )
+                    ++ speak p
+                    ++ " "
+                    ++ hold p
+                    ++ " "
+                    ++ String.fromInt openN
+                    ++ " of 3 Open groups. "
+                    ++ (if hasOW then
+                            speak p ++ " " ++ hold p ++ " the Open Weights Collective"
+
+                        else
+                            speak p ++ " " ++ doNot p ++ " hold the Open Weights Collective"
+                       )
+                    ++ ". "
+                    ++ speak p
+                    ++ " "
+                    ++ hold p
+                    ++ " "
+                    ++ String.fromInt n
+                    ++ " of 4 settled groups."
                 )
 
             else if p.factionId == "pause" then
@@ -1634,13 +1710,36 @@ goalProgress game p =
                         not (List.isEmpty (types "media"))
 
                     a =
-                        min 1 (toFloat paused / 2)
+                        min 1 (toFloat paused / 3)
 
                     b =
                         (if hasReg then 0.35 else 0) + (if hasMedia then 0.35 else 0) + (if n >= 3 && hasReg && hasMedia then 0.3 else min 0.25 (toFloat n / 12))
                 in
                 ( max a b
-                , String.fromInt paused ++ "/2 Frontier neutralized or destroyed; or regulator " ++ (if hasReg then "yes" else "no") ++ ", media " ++ (if hasMedia then "yes" else "no") ++ ", " ++ String.fromInt n ++ "/3 groups"
+                , speak p
+                    ++ " "
+                    ++ have p
+                    ++ " removed "
+                    ++ String.fromInt paused
+                    ++ " of 3 Frontier groups. "
+                    ++ (if hasReg then
+                            speak p ++ " " ++ hold p ++ " a regulator. "
+
+                        else
+                            speak p ++ " " ++ doNot p ++ " hold a regulator. "
+                       )
+                    ++ (if hasMedia then
+                            speak p ++ " " ++ hold p ++ " a media group. "
+
+                        else
+                            speak p ++ " " ++ doNot p ++ " hold a media group. "
+                       )
+                    ++ speak p
+                    ++ " "
+                    ++ hold p
+                    ++ " "
+                    ++ String.fromInt n
+                    ++ " of 3 settled groups."
                 )
 
             else if p.factionId == "directorate" then
@@ -1655,17 +1754,40 @@ goalProgress game p =
                         List.length (aligns "Nationalist")
 
                     a =
-                        (if hasFront then 0.25 else 0) + (if hasReg then 0.25 else 0) + (if n >= 5 && hasFront && hasReg then 0.5 else min 0.3 (toFloat n / 16))
+                        (if hasFront then 0.3 else 0) + (if hasReg then 0.3 else 0) + (if n >= 3 && hasFront && hasReg then 0.4 else min 0.3 (toFloat n / 10))
 
                     b =
-                        if n >= 5 && natN >= 2 then
+                        if n >= 4 && natN >= 2 then
                             1
 
                         else
-                            min 0.85 ((toFloat n / 5) * 0.55 + min 0.3 (toFloat natN / 2))
+                            min 0.85 ((toFloat n / 4) * 0.55 + min 0.3 (toFloat natN / 2))
                 in
                 ( max a b
-                , "Frontier " ++ (if hasFront then "yes" else "no") ++ " + regulator " ++ (if hasReg then "yes" else "no") ++ " + " ++ String.fromInt n ++ "/5 groups; or " ++ String.fromInt n ++ "/5 groups with two Nationalist"
+                , (if hasFront then
+                    "A Frontier group is in the structure. "
+
+                   else
+                    "No Frontier group yet. "
+                  )
+                    ++ (if hasReg then
+                            "A regulator is in the structure. "
+
+                        else
+                            "No regulator yet. "
+                       )
+                    ++ speak p
+                    ++ " "
+                    ++ hold p
+                    ++ " "
+                    ++ String.fromInt n
+                    ++ " of 3 settled groups on that path. The other path is 4 settled groups including 2 Nationalist ones. "
+                    ++ speak p
+                    ++ " "
+                    ++ hold p
+                    ++ " "
+                    ++ String.fromInt natN
+                    ++ " so far."
                 )
 
             else if p.factionId == "long-plan" then
@@ -1690,7 +1812,33 @@ goalProgress game p =
                             min 0.9 (toFloat p.compute / toFloat longPlanCompute)
                 in
                 ( max a b
-                , "Chipmaker " ++ (if hasChip then "yes" else "no") ++ " + hyperscaler " ++ (if hasHyper then "yes" else "no") ++ " + " ++ String.fromInt n ++ "/5 groups; or " ++ String.fromInt p.compute ++ "/" ++ String.fromInt longPlanCompute ++ " compute and the lead"
+                , (if hasChip then
+                    speak p ++ " " ++ hold p ++ " a chipmaker. "
+
+                   else
+                    speak p ++ " " ++ doNot p ++ " hold a chipmaker. "
+                  )
+                    ++ (if hasHyper then
+                            speak p ++ " " ++ hold p ++ " a hyperscaler. "
+
+                        else
+                            speak p ++ " " ++ doNot p ++ " hold a hyperscaler. "
+                       )
+                    ++ speak p
+                    ++ " "
+                    ++ hold p
+                    ++ " "
+                    ++ String.fromInt n
+                    ++ " of 5 settled groups. The compute path is "
+                    ++ String.fromInt p.compute
+                    ++ " of "
+                    ++ String.fromInt longPlanCompute
+                    ++ (if lead then
+                            ", and " ++ speak p ++ " " ++ have p ++ " the lead."
+
+                        else
+                            ", still short of a strict lead."
+                       )
                 )
 
             else
@@ -1711,14 +1859,38 @@ goalProgress game p =
                         (if hasP then 1 / 3 else 0) + (if hasD then 1 / 3 else 0) + (if hasC then 1 / 3 else 0)
 
                     b =
-                        if money >= crownMoney && n >= 4 then
+                        if money >= crownMoney && n >= 3 then
                             1
 
                         else
-                            min 0.9 ((toFloat money / toFloat crownMoney) * 0.6 + min 0.4 (toFloat n / 10))
+                            min 0.9 ((toFloat money / toFloat crownMoney) * 0.6 + min 0.4 (toFloat n / 9))
                 in
                 ( max a b
-                , "Power " ++ (if hasP then "yes" else "no") ++ ", datacenter " ++ (if hasD then "yes" else "no") ++ ", chipmaker " ++ (if hasC then "yes" else "no") ++ "; or " ++ String.fromInt money ++ "/" ++ String.fromInt crownMoney ++ " money and " ++ String.fromInt n ++ "/4 groups"
+                , (if hasP then
+                    "Power is secured. "
+
+                   else
+                    "No power group yet. "
+                  )
+                    ++ (if hasD then
+                            "A datacenter is secured. "
+
+                        else
+                            "No datacenter yet. "
+                       )
+                    ++ (if hasC then
+                            "A chipmaker is secured. "
+
+                        else
+                            "No chipmaker yet. "
+                       )
+                    ++ "The other path is "
+                    ++ String.fromInt money
+                    ++ " of "
+                    ++ String.fromInt crownMoney
+                    ++ " money with "
+                    ++ String.fromInt n
+                    ++ " of 3 settled groups."
                 )
 
         won =
@@ -1804,7 +1976,7 @@ attackStrength game playerId attacker targetId kind spend defSpend =
     in
     case findInstance game targetId of
         Nothing ->
-            { strength = 0, atkP = 0, transfer = 0, spend = spend, aMod = 0, special = 0, res = 0, defSpend = defSpend, defT = 0, prob = 0 }
+            { strength = 0, atkP = 0, transfer = 0, spend = spend, aMod = 0, special = 0, res = 0, defSpend = defSpend, defT = 0, lean = 0, prob = 0 }
 
         Just target ->
             let
@@ -1854,8 +2026,14 @@ attackStrength game playerId attacker targetId kind spend defSpend =
                 defT =
                     defenseSupport game target
 
+                leaned =
+                    pressureOn player target.instanceId
+
+                spendPower =
+                    spend * spendWeight
+
                 strength =
-                    atkP + transfer + spend + aMod + special - res - defSpend - defT - contestedPenalty
+                    atkP + transfer + spendPower + leaned + aMod + special - res - defSpend - defT - contestedPenalty
             in
             { strength = strength
             , atkP = atkP
@@ -1866,6 +2044,7 @@ attackStrength game playerId attacker targetId kind spend defSpend =
             , res = res
             , defSpend = defSpend
             , defT = defT
+            , lean = leaned
             , prob = twoD6Prob strength
             }
 
@@ -1974,6 +2153,12 @@ specialMod game player attacker target kind =
             0
           )
         + (if player.factionId == "directorate" && (List.member "Founder" tCard.traits || tCard.type_ == "lab") then
+            2
+
+           else
+            0
+          )
+        + (if player.factionId == "crown" && (tCard.type_ == "power" || tCard.type_ == "datacenter" || tCard.type_ == "chipmaker") then
             2
 
            else
@@ -2178,6 +2363,21 @@ legalActions game =
                 else
                     []
 
+            leans =
+                if totalMoney player < 2 then
+                    []
+
+                else
+                    List.filterMap
+                        (\t ->
+                            if t.ownerId == Just player.id || pressureOn player t.instanceId >= 6 then
+                                Nothing
+
+                            else
+                                Just (Lean t.instanceId)
+                        )
+                        targets
+
             drops =
                 List.map (\g -> Drop g.instanceId) player.grove
 
@@ -2212,7 +2412,7 @@ legalActions game =
                     )
                     player.grove
         in
-        Pass :: attacks ++ leak ++ drops ++ reorgs
+        Pass :: attacks ++ leans ++ leak ++ drops ++ reorgs
 
 
 applyAction : Game -> Action -> ActResult
@@ -2236,6 +2436,9 @@ applyAction game action =
 
             Leak ->
                 leakWeights game
+
+            Lean targetId ->
+                leanOn game targetId
 
 
 resolveAttack : Game -> Kind -> Attacker -> String -> Int -> Maybe Parent -> ActResult
@@ -2274,7 +2477,7 @@ resolveAttack game kind attacker targetId spend0 parent =
                             defSpend =
                                 case defender of
                                     Just d ->
-                                        if d.isAI then
+                                        if d.isAI || d.agent == Reasonable then
                                             min (aiDefense game d target player kind spend) (totalMoney d)
 
                                         else
@@ -2288,7 +2491,7 @@ resolveAttack game kind attacker targetId spend0 parent =
 
                             gamePaid =
                                 game
-                                    |> updatePlayer player.id (takeMoney spend)
+                                    |> updatePlayer player.id (takeMoney spend >> clearPressure target.instanceId)
                                     |> (\g ->
                                             case defender of
                                                 Just d ->
@@ -2493,10 +2696,10 @@ steal game playerId targetId preferred =
                         List.map
                             (\g ->
                                 if g.instanceId == target.instanceId then
-                                    { g | ownerId = Just playerId, parent = Just parent, privilegedTurns = 2 }
+                                    { g | ownerId = Just playerId, parent = Just parent, privilegedTurns = 4 }
 
                                 else
-                                    { g | ownerId = Just playerId, privilegedTurns = 2 }
+                                    { g | ownerId = Just playerId, privilegedTurns = 4 }
                             )
                             moving
 
@@ -2843,6 +3046,40 @@ leakWeights game =
                     done (checkVictory (spendAction game4))
 
 
+leanOn : Game -> String -> ActResult
+leanOn game targetId =
+    let
+        player =
+            current game
+    in
+    case findInstance game targetId of
+        Nothing ->
+            { ok = False, error = Just "That group is gone.", game = game }
+
+        Just target ->
+            if target.ownerId == Just player.id then
+                { ok = False, error = Just "Lean on someone else's group.", game = game }
+
+            else if totalMoney player < 2 then
+                { ok = False, error = Just "Leaning costs 2 money.", game = game }
+
+            else if pressureOn player targetId >= 6 then
+                { ok = False, error = Just "You are already leaning as hard as you can.", game = game }
+
+            else
+                let
+                    fresh =
+                        getPlayer game player.id
+                in
+                done
+                    (game
+                        |> updatePlayer player.id (takeMoney 2 >> addPressure targetId)
+                        |> say (fresh.name ++ " " ++ agrees fresh.name "leans" ++ " on " ++ (cardOf target).name ++ " (+2 on the next attack, up to +6).") Nothing Nothing
+                        |> spendAction
+                        |> checkVictory
+                    )
+
+
 passAction : Game -> Game
 passAction game =
     let
@@ -3028,6 +3265,69 @@ kindThird kind =
             "destroys"
 
 
+speak : Player -> String
+speak p =
+    if p.name == "You" && not p.isAI then
+        "You"
+
+    else
+        (factionOf p).short
+
+
+have : Player -> String
+have p =
+    if speak p == "You" then
+        "have"
+
+    else
+        "has"
+
+
+hold : Player -> String
+hold p =
+    if speak p == "You" then
+        "hold"
+
+    else
+        "holds"
+
+
+doNot : Player -> String
+doNot p =
+    if speak p == "You" then
+        "do not"
+
+    else
+        "does not"
+
+
+pressureOn : Player -> String -> Int
+pressureOn player targetId =
+    case List.filter (\( iid, _ ) -> iid == targetId) player.pressure of
+        ( _, n ) :: _ ->
+            n
+
+        [] ->
+            0
+
+
+addPressure : String -> Player -> Player
+addPressure targetId player =
+    let
+        next =
+            min 6 (pressureOn player targetId + 2)
+
+        rest =
+            List.filter (\( iid, _ ) -> iid /= targetId) player.pressure
+    in
+    { player | pressure = ( targetId, next ) :: rest }
+
+
+clearPressure : String -> Player -> Player
+clearPressure targetId player =
+    { player | pressure = List.filter (\( iid, _ ) -> iid /= targetId) player.pressure }
+
+
 agrees : String -> String -> String
 agrees name third =
     if name /= "You" then
@@ -3097,6 +3397,9 @@ agrees name third =
 
             "scores" ->
                 "score"
+
+            "leans" ->
+                "lean"
 
             _ ->
                 third

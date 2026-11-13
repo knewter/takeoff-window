@@ -27,6 +27,11 @@ app.ports.emit.subscribe((raw) => {
       console.error("human policy win rate outside 25–45%: " + report.humanWinRate);
       process.exit(1);
     }
+    const lowHuman = (report.humanByFaction || []).filter((row) => row.games > 0 && row.winRate < 0.15);
+    if (lowHuman.length) {
+      console.error("human policy under 15% for a faction: " + JSON.stringify(lowHuman));
+      process.exit(1);
+    }
   }
   process.exit(0);
 });

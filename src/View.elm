@@ -64,6 +64,7 @@ type alias Model =
     , busy : Bool
     , speed : Int
     , driveAll : Bool
+    , actionsReady : Bool
     }
 
 
@@ -86,8 +87,10 @@ type Msg
     | SetSpend String
     | Launch
     | CloseModal
+    | ReviewBoard
     | PassTurn
     | DoLeak
+    | DoLean String
     | AskDrop String
     | DoDrop String
     | OpenReorg String
@@ -117,6 +120,7 @@ initUi width height seedInput =
     , busy = False
     , speed = 420
     , driveAll = False
+    , actionsReady = True
     }
 
 
@@ -472,7 +476,9 @@ youCard you game compact =
 
               else
                 text f.goalText
-            , div [ class "goal-detail" ] [ text (goal.secretText ++ " · public " ++ goal.publicText) ]
+            , div [ class "goal-detail" ] [ text goal.secretText ]
+            , div [ class "goal-detail race" ] [ text ("Compute race: " ++ computeRace game) ]
+            , div [ class "goal-detail" ] [ text ("Public win: " ++ goal.publicText ++ ".") ]
             , div [ class "progress" ] [ Html.i [ style "width" pct, style "background" f.color ] [] ]
             ]
         , if compact then
@@ -575,54 +581,77 @@ dock model game isPhone =
 
 attackButtons : Game -> Maybe String -> List (Html Msg)
 attackButtons game selected =
-    case selected of
-        Just id ->
-            if id == "patron" then
+    let
+        you =
+            Engine.getPlayer game 0
+
+        yourTurn =
+            not game.gameOver && (Engine.current game).id == 0
+    in
+    if not yourTurn then
+        []
+
+    else
+        case selected of
+            Just id ->
+                if id == "patron" then
+                    []
+
+                else
+                    case Engine.findInstance game id of
+                        Just g ->
+                            if g.ownerId == Just 0 then
+                                [ button [ class "btn btn-sm", onClick (OpenReorg id) ] [ text "Reorganize" ]
+                                , button [ class "btn btn-sm btn-danger", onClick (AskDrop id) ] [ text "Release" ]
+                                ]
+
+                            else if you.attackedThisTurn then
+                                [ div [ class "attack-note" ] [ text "You have already launched an attack this turn." ]
+                                , button [ class "btn btn-kind-control", disabled True, A.title "You have already launched an attack this turn." ] [ text "Control" ]
+                                , button [ class "btn btn-kind-neutralize", disabled True, A.title "You have already launched an attack this turn." ] [ text "Neutralize" ]
+                                , button [ class "btn btn-kind-destroy", disabled True, A.title "You have already launched an attack this turn." ] [ text "Destroy" ]
+                                ]
+
+                            else
+                                let
+                                    ctrl =
+                                        Engine.canAttack game you PatronAtk g Control
+
+                                    blocked =
+                                        case ctrl of
+                                            Err reason ->
+                                                not (String.contains "already led" reason || String.contains "already acted" reason)
+
+                                            Ok _ ->
+                                                False
+
+                                    lean =
+                                        if Engine.totalMoney you >= 2 && Engine.pressureOn you id < 6 then
+                                            [ button [ class "btn btn-sm", onClick (DoLean id) ] [ text ("Lean ($2, now +" ++ String.fromInt (Engine.pressureOn you id) ++ ")") ] ]
+
+                                        else
+                                            []
+                                in
+                                lean
+                                    ++ (if g.ownerId == Nothing || g.ownerId /= Just 0 then
+                                            [ button [ class "btn btn-kind-control", disabled blocked, A.title (reasonText ctrl), onClick (OpenAttack id Control) ] [ text "Control" ] ]
+
+                                        else
+                                            []
+                                       )
+                                    ++ (if g.ownerId == Nothing then
+                                            []
+
+                                        else
+                                            [ button [ class "btn btn-kind-neutralize", onClick (OpenAttack id Neutralize) ] [ text "Neutralize" ] ]
+                                       )
+                                    ++ [ button [ class "btn btn-kind-destroy", onClick (OpenAttack id Destroy) ] [ text "Destroy" ] ]
+
+                        Nothing ->
+                            []
+
+            Nothing ->
                 []
-
-            else
-                case Engine.findInstance game id of
-                    Just g ->
-                        if g.ownerId == Just 0 then
-                            [ button [ class "btn btn-sm", onClick (OpenReorg id) ] [ text "Reorganize" ]
-                            , button [ class "btn btn-sm btn-danger", onClick (AskDrop id) ] [ text "Release" ]
-                            ]
-
-                        else
-                            let
-                                you =
-                                    Engine.getPlayer game 0
-
-                                ctrl =
-                                    Engine.canAttack game you PatronAtk g Control
-
-                                blocked =
-                                    case ctrl of
-                                        Err reason ->
-                                            not (String.contains "already led" reason || String.contains "already acted" reason || String.contains "already launched" reason)
-
-                                        Ok _ ->
-                                            False
-                            in
-                            (if g.ownerId == Nothing || g.ownerId /= Just 0 then
-                                [ button [ class "btn btn-kind-control", disabled blocked, onClick (OpenAttack id Control) ] [ text "Control" ] ]
-
-                             else
-                                []
-                            )
-                                ++ (if g.ownerId == Nothing then
-                                        []
-
-                                    else
-                                        [ button [ class "btn btn-kind-neutralize", onClick (OpenAttack id Neutralize) ] [ text "Neutralize" ] ]
-                                   )
-                                ++ [ button [ class "btn btn-kind-destroy", onClick (OpenAttack id Destroy) ] [ text "Destroy" ] ]
-
-                    Nothing ->
-                        []
-
-        Nothing ->
-            []
 
 
 leakButton : Game -> Player -> List (Html Msg)
@@ -1338,23 +1367,23 @@ rulesBody =
             , h3 [] [ text "The structure" ]
             , ul []
                 [ li [] [ text "Your patron has a treasury and three outgoing control sockets. Groups hang from sockets, drawn as arrows. A group with its own sockets can hold subordinates, so trees grow more than one level deep." ]
-                , li [] [ text "Control steals a whole branch. Neutralize and Destroy send subordinates back to the open field. A newly taken group is privileged and cannot be attacked yet. Most group goals count a group only after that privilege ends. The Open Wave's four-group network counts immediately." ]
+                , li [] [ text "Control steals a whole branch. Neutralize and Destroy send subordinates back to the open field. A newly taken group is privileged for four turns: it cannot be attacked, and it pays no income or compute, until that privilege ends. Every secret goal that counts groups counts only settled groups." ]
                 ]
             , h3 [] [ text "A turn" ]
             , ul []
                 [ li [] [ text "At the start of your turn you collect income: the patron's income, plus each group's, paid onto that group. Compute-producing groups add Compute." ]
-                , li [] [ text "You have two actions, but only one of them may be an attack. The other can release a group, reorganize it onto a free socket, attempt a weights leak, or pass." ]
+                , li [] [ text "You have two actions. Only one of them may be an attack, whether the roll succeeds or fails. The other can lean on a group (2 money, +2 on your next attack against it, up to +6), release a group, reorganize it, attempt a weights leak, or pass." ]
                 , li [] [ text "A new headline is drawn at the start of each quarter." ]
                 ]
             ]
         , div []
             [ h3 [] [ text "Attacks" ]
             , ul []
-                [ li [] [ Html.strong [] [ text "Control" ], text " takes a group and its branch. One successful control per turn, and you need a free socket." ]
+                [ li [] [ Html.strong [] [ text "Control" ], text " takes a group and its branch. You need a free socket. You only get one attack each turn, so a second Control, Neutralize, or Destroy waits until next turn." ]
                 , li [] [ Html.strong [] [ text "Neutralize" ], text " breaks a group free of its owner. " ]
                 , li [] [ Html.strong [] [ text "Destroy" ], text " removes a group from the game." ]
                 , li [] [ text "Roll 2d6. You succeed if the total is less than or equal to your attack strength, and is not a 12. A 12 always fails." ]
-                , li [] [ text "Strength = attacker power + a smaller transfer from the parent + up to 3 money + alignment and special modifiers − resistance − the defender's parent − the defender's spend − 2, because every attack is contested." ]
+                , li [] [ text "Strength = attacker power + transfer from the parent + 2 per dollar spent (up to 4 dollars) + any lean you have banked on that group + alignment and special modifiers − resistance − the defender's parent − the defender's spend − 2, because every attack is contested." ]
                 ]
             , h3 [] [ text "Alignments" ]
             , ul []
@@ -1514,7 +1543,8 @@ attackBody model form spinning done =
                                 , div [ class "formula" ]
                                     [ div [] [ text "Attacker power ", Html.strong [] [ text (String.fromInt br.atkP) ] ]
                                     , div [] [ text "Transfer from parent ", Html.strong [] [ text (signed br.transfer) ] ]
-                                    , div [] [ text "Money spent ", Html.strong [] [ text (signed br.spend) ] ]
+                                    , div [] [ text ("Money spent ($" ++ String.fromInt br.spend ++ ") "), Html.strong [] [ text (signed (br.spend * Engine.spendWeight)) ] ]
+                                    , div [] [ text "Lean banked ", Html.strong [] [ text (signed br.lean) ] ]
                                     , div [] [ text "Alignment ", Html.strong [] [ text (signed br.aMod) ] ]
                                     , div [] [ text "Special ", Html.strong [] [ text (signed br.special) ] ]
                                     , div [] [ text "Resistance ", Html.strong [] [ text ("−" ++ String.fromInt br.res) ] ]
@@ -1532,7 +1562,7 @@ attackBody model form spinning done =
                                         , span [] [ text ("$ " ++ String.fromInt spend ++ " of " ++ String.fromInt money) ]
                                         ]
                                     ]
-                                , p [ class "defender-note" ] [ text "The defender may spend money after you confirm, which can lower these odds. A single attack can spend at most 3." ]
+                                , p [ class "defender-note" ] [ text "The defender may spend money after you confirm, which can lower these odds. A single attack can spend at most 4 dollars, and each dollar adds 2 strength." ]
                                 , div [ class "btn-row", style "justify-content" "flex-end" ]
                                     [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
                                     , button [ class "btn btn-primary", onClick Launch ] [ text "Roll 2d6" ]
@@ -1616,21 +1646,27 @@ victoryBody model =
                                         Engine.goalProgress game p
                                 in
                                 tr [ classList [ ( "winner", game.winner == Just p.id ) ] ]
-                                    [ td [ class "fn", style "color" f.color ] [ text f.name ]
-                                    , td [] [ text (String.fromInt (Engine.groupCount p)) ]
-                                    , td [] [ text (String.fromInt p.compute) ]
-                                    , td [] [ text (String.fromInt (Engine.totalMoney p)) ]
-                                    , td [] [ text (String.fromInt (round (g.secretRatio * 100)) ++ "%") ]
-                                    , td [] [ text f.goalText ]
+                                    [ td [ class "fn", A.attribute "data-k" "Patron", style "color" f.color ] [ text f.name ]
+                                    , td [ A.attribute "data-k" "Groups" ] [ text (String.fromInt (Engine.groupCount p)) ]
+                                    , td [ A.attribute "data-k" "Compute" ] [ text (String.fromInt p.compute) ]
+                                    , td [ A.attribute "data-k" "Money" ] [ text (String.fromInt (Engine.totalMoney p)) ]
+                                    , td [ A.attribute "data-k" "Goal" ] [ text (String.fromInt (round (g.secretRatio * 100)) ++ "%") ]
+                                    , td [ A.attribute "data-k" "Secret" ] [ text f.goalText ]
                                     ]
                             )
                             game.players
                         )
                     ]
-                , div [ class "btn-row", style "justify-content" "center" ]
-                    [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Review the board" ]
-                    , button [ class "btn", onClick Rematch ] [ text "Same chairs, new seed" ]
-                    , button [ class "btn btn-primary", onClick GotoFaction ] [ text "New Game" ]
+                , case game.lastRoll of
+                    Just roll ->
+                        p [ class "lead" ] [ text ("Last roll " ++ String.fromInt roll.a ++ "+" ++ String.fromInt roll.b ++ "=" ++ String.fromInt roll.sum ++ (if roll.success then " — success." else " — fails.")) ]
+
+                    Nothing ->
+                        text ""
+                , div [ class "btn-row victory-actions", style "justify-content" "center" ]
+                    [ button [ class "btn btn-ghost", disabled (not model.actionsReady), onClick ReviewBoard ] [ text "Review the board" ]
+                    , button [ class "btn", disabled (not model.actionsReady), onClick Rematch ] [ text "Same chairs, new seed" ]
+                    , button [ class "btn btn-primary", disabled (not model.actionsReady), onClick GotoFaction ] [ text "New Game" ]
                     ]
                 ]
 
@@ -1831,6 +1867,23 @@ cardArt card =
         [ Svg.rect [ SA.width "168", SA.height "44", SA.fill col, SA.opacity "0.35" ] []
         , Svg.circle [ SA.cx "84", SA.cy "22", SA.r "10", SA.fill "none", SA.stroke "#f3ecd8", SA.strokeWidth "1.2" ] []
         ]
+
+
+computeRace : Game -> String
+computeRace game =
+    game.players
+        |> List.map (\p -> (factionById p.factionId).short ++ " " ++ String.fromInt p.compute)
+        |> String.join " · "
+
+
+reasonText : Result String a -> String
+reasonText result =
+    case result of
+        Err reason ->
+            reason
+
+        Ok _ ->
+            ""
 
 
 signed : Int -> String

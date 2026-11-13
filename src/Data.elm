@@ -99,8 +99,8 @@ factions =
     , sockets = 3
     , flavor = "A frontier lab convinced that every safety memo is a latency bug and that the only real alignment is a loss curve going down."
     , ability = "+1 power when attacking Labs or Chipmakers."
-    , goalText = "Have 30 or more Compute."
-    , goalHint = "Stack compute-producing groups and ride the income. Thirty flops is takeoff."
+    , goalText = "Have 20 or more Compute, or hold a settled Lab and a settled Chipmaker with at least 12 Compute."
+    , goalHint = "Win the compute race at 20, or settle a lab and a chipmaker and reach 12."
     }
     ,     { id = "open-wave"
     , name = "The Open Wave"
@@ -112,7 +112,7 @@ factions =
     , sockets = 3
     , flavor = "Accelerationists, forum legends, and a few sincere librarians of weights. They believe a closed model is a coup waiting to happen."
     , ability = "+2 power when attacking Open-aligned groups. You may attempt to leak weights if you control a Lab."
-    , goalText = "A Weights Leak has happened and you control three Open-aligned groups — or you control the Open Weights Collective and four groups total."
+    , goalText = "A Weights Leak has happened and you hold three settled Open-aligned groups — or you hold the Open Weights Collective and four settled groups."
     , goalHint = "Open the models, then own the people who distribute them."
     }
     ,     { id = "pause"
@@ -125,7 +125,7 @@ factions =
     , sockets = 3
     , flavor = "A coalition of longtermists, letter-signers, and professional worriers. They would like the future to arrive, just not this Tuesday."
     , ability = "+3 power on Neutralize or Destroy attacks against Frontier groups."
-    , goalText = "Destroy or neutralize two Frontier groups that were under someone's control, or control a Regulator, a Media group, and any third group."
+    , goalText = "Destroy or neutralize three Frontier groups that were under someone's control, or hold a settled Regulator, a settled Media group, and any third settled group."
     , goalHint = "Pull the labs off the board, or own the referee and the headline."
     }
     ,     { id = "directorate"
@@ -138,8 +138,8 @@ factions =
     , sockets = 3
     , flavor = "A national-security apparatus that has discovered \"foundation models\" and would prefer the founders not make any more sudden trips."
     , ability = "+2 power when attacking Founder or Lab groups."
-    , goalText = "Control a Frontier group, a Regulator, and three other groups — or control five groups including two Nationalist ones."
-    , goalHint = "A lab in one pocket, a regulator in the other — or a broad patriotic stack."
+    , goalText = "Hold a settled Frontier group, a settled Regulator, and three settled groups in total — or four settled groups including two Nationalist ones."
+    , goalHint = "A lab in one pocket, a regulator in the other — or a four-group patriotic stack."
     }
     ,     { id = "long-plan"
     , name = "The Long Plan"
@@ -163,8 +163,8 @@ factions =
     , income = 5
     , sockets = 3
     , flavor = "A sovereign buyer with a blank check and a preference for owning the physical stack: power, land, and the chips that sit on both."
-    , ability = "Power and Datacenter groups you control produce +1 income."
-    , goalText = "Control at least one Power group, one Datacenter, and one Chipmaker — or have 72 money and four groups."
+    , ability = "Power and Datacenter groups you control produce +1 income. +2 power when attacking Power, Datacenter, or Chipmaker groups."
+    , goalText = "Hold a settled Power group, a settled Datacenter, and a settled Chipmaker — or have 64 money and three settled groups."
     , goalHint = "Buy the grid, the building, and the silicon. Or just be unimaginably liquid."
     }
     ]
