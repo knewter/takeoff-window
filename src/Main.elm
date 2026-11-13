@@ -392,6 +392,9 @@ updateUi msg app =
         DoLean id ->
             apply (Lean id) app
 
+        DoInvoke id ->
+            apply (Invoke id) app
+
         AskDrop id ->
             emit { app | ui = { ui | modal = View.Confirm "Release this group?" "It returns to the open field, along with any subordinates. This costs an action." (DoDrop id) } } Cmd.none
 

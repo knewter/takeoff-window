@@ -94,6 +94,7 @@ type Msg
     | PassTurn
     | DoLeak
     | DoLean String
+    | DoInvoke String
     | AskDrop String
     | DoDrop String
     | OpenReorg String
@@ -664,7 +665,7 @@ verbChips offers =
     List.filter
         (\o ->
             o.enabled
-                && (o.band == "attack" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release" || o.label == "Leak Weights")
+                && (o.band == "attack" || o.band == "special" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release" || o.label == "Leak Weights")
         )
         offers
 
@@ -728,6 +729,54 @@ offerRow offer =
     chip offer
 
 
+invokeOffers : Game -> Player -> Bool -> List Offer
+invokeOffers game you yourTurn =
+    if not yourTurn then
+        []
+
+    else
+        List.filterMap (\g -> invokeOffer you g) you.grove
+
+
+invokeOffer : Player -> Group -> Maybe Offer
+invokeOffer you g =
+    let
+        card =
+            Engine.cardOf g
+
+        base label cost tip =
+            if g.privilegedTurns > 0 then
+                Just { label = label, band = "special", enabled = False, reason = "Privileged for now", act = NoOp, tip = tip }
+
+            else if g.exhausted then
+                Just { label = label, band = "special", enabled = False, reason = "Already used this turn", act = NoOp, tip = tip }
+
+            else if Engine.totalMoney you < cost then
+                Just { label = label, band = "special", enabled = False, reason = "Need $" ++ String.fromInt cost, act = NoOp, tip = tip }
+
+            else
+                Just { label = label, band = "special", enabled = True, reason = "Spend $" ++ String.fromInt cost, act = DoInvoke g.instanceId, tip = tip }
+    in
+    case card.special of
+        Just "doomer-cult" ->
+            base "Recruit" 1 "A doomer cult recruits. A rival lab loses 1 power, and safety pressure ticks. Parody, not fact."
+
+        Just "accel-cult" ->
+            base "Recruit" 1 "An accelerationist cult poaches. You gain 1 compute and a rival lab loses 1 power. Parody, not fact."
+
+        Just "remove-founder" ->
+            base "Remove founder" 3 "Cut a founder loose from their patron for 3. A briefing leaks and the service is exposed. Parody, not fact."
+
+        Just "ration-compute" ->
+            base "Ration" 0 "The chip kingpin moves one compute toward you and off the rival with the most. Parody, not fact."
+
+        Just "wildcard-swing" ->
+            base "Swing" 0 "A coin-flip quarter. Either a windfall, or a stumble. Parody, not fact."
+
+        _ ->
+            Nothing
+
+
 actionOffers : Game -> Player -> Bool -> Maybe Group -> List Offer
 actionOffers game you yourTurn selected =
     [ attackOffer game you yourTurn "Control" Control selected
@@ -736,9 +785,10 @@ actionOffers game you yourTurn selected =
     , leanOffer game you yourTurn selected
     , reorgOffer you yourTurn selected
     , releaseOffer you yourTurn selected
-    , leakOffer game you yourTurn
+    ,         leakOffer game you yourTurn
     , passOffer game yourTurn
     ]
+        ++ invokeOffers game you yourTurn
 
 
 attackOffer : Game -> Player -> Bool -> String -> Kind -> Maybe Group -> Offer
@@ -1062,6 +1112,7 @@ groupCard g selected owner lean =
         , div [ class "body" ]
             [ div [ class "type" ] [ text (meta.label ++ (if card.parody then " · PARODY" else "") ++ (if g.exhausted then " · ACTED" else "") ++ (if g.disabledTurns > 0 then " · DISABLED" else "")) ]
             , div [ class "name" ] [ text card.name ]
+            , specialTag card.special
             , div [ class "title" ] [ text card.title ]
             , div [ class "pills" ] (pills (Engine.alignmentsOf g))
             , div [ class "nums" ] (nums g owner lean)
@@ -1931,6 +1982,7 @@ rulesBody =
             , h3 [] [ text "The rest" ]
             , ul []
                 [ li [] [ text "Helios labs and chipmakers pay Compute on the last privileged turn. Their money, and every other group's income, still waits the full four." ]
+                , li [] [ text "Hold a cult to Recruit, the Listening Service to Remove a founder, the chip kingpin to Ration, or the wildcard to Swing. A plant delay skips anyone who already holds power. Parody, not fact." ]
                 , li [] [ text "On a phone, use the tabs to move between your tree, rivals, the open field, the log, and these rules. The action bar stays on screen." ]
                 , li [] [ text "The same seed always deals the same game. Add ?autoplay=1&seed=N to watch every seat, or call window.game from the console." ]
                 , li [] [ text disclaimer ]
@@ -2553,6 +2605,31 @@ heliosNudge you =
                     "You're " ++ String.fromInt away ++ " compute away from takeoff."
                 )
             ]
+
+
+specialTag : Maybe String -> Html Msg
+specialTag special =
+    case special of
+        Just "doomer-cult" ->
+            span [ class "special-tag", A.title "Recruit: spend 1. A rival lab loses 1 power and safety pressure ticks. Parody, not fact." ] [ text "Cult" ]
+
+        Just "accel-cult" ->
+            span [ class "special-tag", A.title "Recruit: spend 1. Gain 1 compute and a rival lab loses 1 power. Parody, not fact." ] [ text "Cult" ]
+
+        Just "remove-founder" ->
+            span [ class "special-tag", A.title "Remove founder: spend 3 to cut a founder from their patron. A briefing leaks. Parody, not fact." ] [ text "Agency" ]
+
+        Just "ration-compute" ->
+            span [ class "special-tag", A.title "Ration: move 1 compute toward you. Rivals' chips also yield 1 less while you hold this. Parody, not fact." ] [ text "Ration" ]
+
+        Just "wildcard-swing" ->
+            span [ class "special-tag", A.title "Swing: a coin-flip quarter, windfall or stumble. Parody, not fact." ] [ text "Wildcard" ]
+
+        Just "founder-hunter" ->
+            span [ class "special-tag", A.title "Stronger against founder groups." ] [ text "Hunter" ]
+
+        _ ->
+            text ""
 
 
 leanMark : Int -> String

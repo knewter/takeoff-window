@@ -18,13 +18,13 @@ app.ports.emit.subscribe((raw) => {
   }
   if (!smoke) {
     const rates = report.winRates || {};
-    const bad = Object.entries(rates).filter(([, r]) => r < 0.08 || r > 0.3);
+    const bad = Object.entries(rates).filter(([, r]) => r < 0.12 || r > 0.22);
     if (bad.length) {
-      console.error("faction win rate outside 8–30%: " + JSON.stringify(bad));
+      console.error("faction win rate outside 12–22%: " + JSON.stringify(bad));
       process.exit(1);
     }
-    if (report.humanWinRate < 0.25 || report.humanWinRate > 0.45) {
-      console.error("human policy win rate outside 25–45%: " + report.humanWinRate);
+    if (report.humanWinRate < 0.25 || report.humanWinRate > 0.35) {
+      console.error("human policy win rate outside 25–35%: " + report.humanWinRate);
       process.exit(1);
     }
     const lowHuman = (report.humanByFaction || []).filter((row) => row.games > 0 && row.winRate < 0.15);
