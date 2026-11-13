@@ -2074,6 +2074,11 @@ body.phone .action-bar.strip {
   max-height: 64px;
   min-height: 56px;
 }
+@media (max-width: 420px) {
+  .strip-atk, .strip-k { display: none; }
+  .strip-status { gap: 4px; }
+  .chip { padding: 0 10px; font-size: 13px; }
+}
 .strip-chips { overflow: hidden; flex-wrap: nowrap; }
 .strip-verbs, .strip-tail { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .strip-verbs { flex: 1 1 auto; overflow: hidden; }
@@ -2094,6 +2099,18 @@ body.phone .action-bar.strip {
 .event-banner { display: flex; align-items: center; gap: 8px; }
 .event-banner .banner-copy { flex: 1; min-width: 0; cursor: pointer; }
 .event-banner h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.special-tag {
+  display: inline-block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
 .banner-x {
   flex: 0 0 auto;
   width: 32px;

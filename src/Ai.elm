@@ -155,6 +155,9 @@ scoreAction game player action =
         Lean id ->
             scoreLean game player id False
 
+        Invoke _ ->
+            0.35
+
         Attack kind _ targetId spend _ ->
             case Engine.findInstance game targetId of
                 Nothing ->
@@ -251,6 +254,9 @@ scoreHuman game player action =
 
         Lean id ->
             scoreLean game player id True
+
+        Invoke _ ->
+            0.8
 
         Attack kind attacker targetId spend _ ->
             case Engine.findInstance game targetId of

@@ -30,7 +30,7 @@ subtitle =
 
 disclaimer : String
 disclaimer =
-    "A work of satire. Every faction, figure, and headline is a fictionalized parody. Nothing here is a factual claim about any real person or organization."
+    "A work of satire. Every faction, figure, and headline is a fictionalized parody with an original name. Nothing here is a factual claim, and nothing here is a real person, logo, or trademark."
 
 
 type alias Faction =
@@ -185,8 +185,8 @@ cards =
     , compute = 3
     , alignments = [ "Corporate", "Accelerationist" ]
     , sockets = 2
-    , special = Nothing
-    , flavor = "He has worn the same ceremonial jacket to every keynote since the first training run that mattered. The demos are always \"just around the corner,\" and the corner keeps arriving."
+    , special = Just "ration-compute"
+    , flavor = "He has worn the same ceremonial jacket to every keynote since the first training run that mattered. Whoever holds the jacket decides who gets the next tray of chips. Parody, not fact."
     }
     ,     { id = "island-foundry"
     , name = "Island Foundry"
@@ -345,8 +345,8 @@ cards =
     , compute = 2
     , alignments = [ "Accelerationist", "Chaotic" ]
     , sockets = 1
-    , special = Nothing
-    , flavor = "A lab, a rocket, a car, and a feed, all somehow the same calendar invite. The training run is always \"this weekend.\""
+    , special = Just "wildcard-swing"
+    , flavor = "A lab, a rocket, a car, and a feed, all somehow the same calendar invite. Some quarters the demo lands. Some quarters the window does. Parody, not fact."
     }
     ,     { id = "open-weights"
     , name = "Open Weights Collective"
@@ -577,7 +577,7 @@ cards =
     , title = "The Long Essay Factory"
     , type_ = "thinktank"
     , traits = [ "ThinkTank" ]
-    , parody = False
+    , parody = True
     , power = 2
     , resistance = 4
     , transfer = 2
@@ -585,8 +585,8 @@ cards =
     , compute = 0
     , alignments = [ "Safety", "Academic" ]
     , sockets = 1
-    , special = Nothing
-    , flavor = "A forum of careful people writing careful posts about extinction, funding, and who is allowed to feel normal."
+    , special = Just "doomer-cult"
+    , flavor = "A forum of careful people writing careful posts about extinction. They recruit worriers and can lean on a lab until it flinches. Parody, not fact."
     }
     ,     { id = "accel-institute"
     , name = "Acceleration Institute"
@@ -601,8 +601,8 @@ cards =
     , compute = 0
     , alignments = [ "Accelerationist", "Open" ]
     , sockets = 1
-    , special = Nothing
-    , flavor = "They publish charts that only go up, and treat a pause as a kind of heresy with worse footnotes."
+    , special = Just "accel-cult"
+    , flavor = "They publish charts that only go up, recruit anyone who can train, and treat a pause as heresy. Parody, not fact."
     }
     ,     { id = "poach-list"
     , name = "The Poach List"
@@ -641,7 +641,7 @@ cards =
     , title = "The Quiet Instrument"
     , type_ = "regulator"
     , traits = [ "Regulator" ]
-    , parody = False
+    , parody = True
     , power = 5
     , resistance = 6
     , transfer = 3
@@ -649,8 +649,8 @@ cards =
     , compute = 0
     , alignments = [ "Nationalist", "Chaotic" ]
     , sockets = 1
-    , special = Nothing
-    , flavor = "A desk that does not appear on org charts. Officially they write briefings. Unofficially, a founder can be invited to a meeting and come back without a company."
+    , special = Just "remove-founder"
+    , flavor = "A desk that does not appear on org charts. Spend 3 to cut a founder loose from their patron. A briefing always leaks. Parody, not fact."
     }
     ,     { id = "benchmark-cmte"
     , name = "Benchmark Committee"

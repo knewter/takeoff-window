@@ -141,6 +141,7 @@ type Action
     | Reorg String Parent
     | Leak
     | Lean String
+    | Invoke String
 
 
 type alias Group =
@@ -725,14 +726,21 @@ effectiveCompute game g =
 
     else
         let
-            c =
+            raw =
                 (cardOf g).compute
+
+            rationed =
+                if raw > 0 && rationApplies game g then
+                    max 0 (raw - 1)
+
+                else
+                    raw
         in
         if g.disabledTurns > 0 then
-            max 0 (c // 2)
+            max 0 (rationed // 2)
 
         else
-            c
+            rationed
 
 
 heliosLabOrChip : Game -> Group -> Bool
@@ -832,11 +840,18 @@ applyIncome game pid =
             gained =
                 f.income + groupInc
 
+            smuggle =
+                if game.flags.exportControls > 0 && p.factionId == "long-plan" && List.any (\g -> (cardOf g).type_ == "chipmaker" && g.privilegedTurns <= 0) p.grove then
+                    1
+
+                else
+                    0
+
             p2 =
                 { p
                     | money = p.money + f.income
                     , grove = grove2
-                    , compute = p.compute + comp2
+                    , compute = p.compute + comp2 + smuggle
                     , statsIncome = p.statsIncome + gained
                 }
         in
@@ -927,14 +942,38 @@ resolveEvent game id =
             case ranked of
                 t :: _ ->
                     let
+                        shielded =
+                            powerCount t > 0
+
+                        nuclear =
+                            List.any (\g -> g.cardId == "smr-promise") t.grove
+
                         loss =
-                            min 2 t.compute
+                            if shielded then
+                                0
+
+                            else
+                                min 2 t.compute
 
                         game1 =
-                            updatePlayer t.id (\p -> { p | compute = p.compute - loss }) game
-                                |> (\g -> { g | effects = g.effects ++ [ { kind = "plant-delay", playerId = t.id, turns = 1 } ] })
+                            if shielded then
+                                game
+
+                            else
+                                updatePlayer t.id (\p -> { p | compute = p.compute - loss }) game
+                                    |> (\g -> { g | effects = g.effects ++ [ { kind = "plant-delay", playerId = t.id, turns = 1 } ] })
+
+                        note =
+                            if nuclear then
+                                " Their own reactor is already warming, so the delay does not stick."
+
+                            else if shielded then
+                                " Power they already hold rides through it."
+
+                            else
+                                " (" ++ String.fromInt loss ++ " compute lost)."
                     in
-                    addLog game1 (getPlayer game1 t.id |> .name |> \n -> n ++ " " ++ agrees n "is" ++ " hit by a plant delay (" ++ String.fromInt loss ++ " compute lost).") Nothing Nothing
+                    addLog game1 (getPlayer game1 t.id |> .name |> \n -> n ++ " " ++ agrees n "is" ++ " hit by a plant delay." ++ note) Nothing Nothing
 
                 [] ->
                     game
@@ -2465,7 +2504,255 @@ legalActions game =
                     )
                     player.grove
         in
-        Pass :: attacks ++ leans ++ leak ++ drops ++ reorgs
+        Pass :: attacks ++ leans ++ leak ++ drops ++ reorgs ++ invokes player
+
+
+invokes : Player -> List Action
+invokes player =
+    List.filterMap
+        (\g ->
+            if g.exhausted || g.privilegedTurns > 0 then
+                Nothing
+
+            else
+                case (cardOf g).special of
+                    Just "doomer-cult" ->
+                        if totalMoney player >= 1 then
+                            Just (Invoke g.instanceId)
+
+                        else
+                            Nothing
+
+                    Just "accel-cult" ->
+                        if totalMoney player >= 1 then
+                            Just (Invoke g.instanceId)
+
+                        else
+                            Nothing
+
+                    Just "remove-founder" ->
+                        if totalMoney player >= 3 then
+                            Just (Invoke g.instanceId)
+
+                        else
+                            Nothing
+
+                    Just "ration-compute" ->
+                        Just (Invoke g.instanceId)
+
+                    Just "wildcard-swing" ->
+                        Just (Invoke g.instanceId)
+
+                    _ ->
+                        Nothing
+        )
+        player.grove
+
+
+rationApplies : Game -> Group -> Bool
+rationApplies game g =
+    let
+        king =
+            List.filter (\x -> x.cardId == "green-jacket" && x.privilegedTurns <= 0 && x.ownerId /= Nothing) (allInstances game)
+    in
+    case king of
+        holder :: _ ->
+            holder.ownerId /= g.ownerId
+
+        [] ->
+            False
+
+
+invokeSpecial : Game -> String -> ActResult
+invokeSpecial game groupId =
+    let
+        player =
+            current game
+    in
+    case findInstance game groupId of
+        Nothing ->
+            { ok = False, error = Just "That group is gone.", game = game }
+
+        Just g ->
+            if g.ownerId /= Just player.id then
+                { ok = False, error = Just "Not your group.", game = game }
+
+            else if g.exhausted || g.privilegedTurns > 0 then
+                { ok = False, error = Just "Already used this turn.", game = game }
+
+            else
+                case (cardOf g).special of
+                    Just "doomer-cult" ->
+                        rite game player g 1 "The Care Forum recruits. A rival lab loses its nerve, and a safety letter stirs." True
+
+                    Just "accel-cult" ->
+                        rite game player g 1 "The Acceleration Institute poaches a researcher into the stack." False
+
+                    Just "remove-founder" ->
+                        removeFounder game player g
+
+                    Just "ration-compute" ->
+                        rationNow game player g
+
+                    Just "wildcard-swing" ->
+                        wildcard game player g
+
+                    _ ->
+                        { ok = False, error = Just "Nothing to invoke.", game = game }
+
+
+rite : Game -> Player -> Group -> Int -> String -> Bool -> ActResult
+rite game player g cost text doomer =
+    if totalMoney player < cost then
+        { ok = False, error = Just "Need more money.", game = game }
+
+    else
+        let
+            labs =
+                List.filter (\x -> (cardOf x).type_ == "lab" && x.ownerId /= Just player.id && x.ownerId /= Nothing) (allInstances game)
+
+            ( picked, game1 ) =
+                pickGame game labs
+
+            pressed =
+                if doomer then
+                    { game1 | flags = setSafety (max 1 game1.flags.safetyLetter) game1.flags }
+
+                else
+                    game1
+
+            hit =
+                case picked of
+                    Just lab ->
+                        mapInstance lab.instanceId (\x -> { x | powerMod = x.powerMod - 1, powerModTurns = max x.powerModTurns 2 }) pressed
+
+                    Nothing ->
+                        pressed
+
+            paid =
+                updatePlayer player.id (takeMoney cost) hit
+                    |> mapInstance g.instanceId (\x -> { x | exhausted = True })
+
+            boosted =
+                if doomer then
+                    paid
+
+                else
+                    updatePlayer player.id (\p -> { p | compute = p.compute + 1 }) paid
+        in
+        done (say text Nothing Nothing boosted |> spendAction)
+
+
+removeFounder : Game -> Player -> Group -> ActResult
+removeFounder game player g =
+    if totalMoney player < 3 then
+        { ok = False, error = Just "Need $3.", game = game }
+
+    else
+        let
+            founders =
+                List.filter
+                    (\x ->
+                        List.member "Founder" (cardOf x).traits
+                            && x.ownerId
+                            /= Just player.id
+                            && x.ownerId
+                            /= Nothing
+                    )
+                    (allInstances game)
+        in
+        case List.sortBy (\x -> negate (cardOf x).power) founders of
+            target :: _ ->
+                case target.ownerId of
+                    Just oid ->
+                        let
+                            paid =
+                                updatePlayer player.id (takeMoney 3) game
+                                    |> mapInstance g.instanceId (\x -> { x | exhausted = True, disabledTurns = max x.disabledTurns 1 })
+
+                            named =
+                                (cardOf target).name
+                        in
+                        done
+                            (paid
+                                |> say ("The Listening Service removes " ++ named ++ " from their patron. A briefing leaks. Parody, not fact.") Nothing Nothing
+                                |> (\g2 -> neutralize g2 oid target.instanceId True)
+                                |> spendAction
+                            )
+
+                    Nothing ->
+                        { ok = False, error = Just "No founder to remove.", game = game }
+
+            [] ->
+                { ok = False, error = Just "No founder to remove.", game = game }
+
+
+rationNow : Game -> Player -> Group -> ActResult
+rationNow game player g =
+    let
+        rivals =
+            List.filter (\p -> p.id /= player.id) game.players
+
+        leader =
+            List.sortBy (\p -> negate p.compute) rivals |> List.head
+    in
+    done
+        (game
+            |> mapInstance g.instanceId (\x -> { x | exhausted = True })
+            |> updatePlayer player.id (\p -> { p | compute = p.compute + 1 })
+            |> (\g2 ->
+                    case leader of
+                        Just rival ->
+                            if rival.compute > 0 then
+                                updatePlayer rival.id (\p -> { p | compute = max 0 (p.compute - 1) }) g2
+                                    |> say ("The chip kingpin rations a batch toward " ++ player.name ++ " and away from " ++ rival.name ++ ". Parody, not fact.") Nothing Nothing
+
+                            else
+                                say ("The chip kingpin keeps the allocation at home. Parody, not fact.") Nothing Nothing g2
+
+                        Nothing ->
+                            g2
+               )
+            |> spendAction
+        )
+
+
+wildcard : Game -> Player -> Group -> ActResult
+wildcard game player g =
+    let
+        ( u, rng1 ) =
+            Rng.nextFloat game.rng
+
+        rolled =
+            { game | rng = rng1 }
+                |> mapInstance g.instanceId (\x -> { x | exhausted = True })
+    in
+    if u < 0.5 then
+        done
+            (updatePlayer player.id (\p -> { p | money = p.money + 3, compute = p.compute + 1 }) rolled
+                |> say ("The wildcard ships a demo and a promise. +3 money, +1 compute. Parody, not fact.") Nothing Nothing
+                |> spendAction
+            )
+
+    else
+        let
+            broke =
+                updatePlayer player.id (\p -> { p | money = max 0 (p.money - 2) }) rolled
+
+            own =
+                List.filter (\x -> x.instanceId /= g.instanceId) player.grove |> List.head
+        in
+        done
+            ((case own of
+                Just lab ->
+                    mapInstance lab.instanceId (\x -> { x | powerMod = x.powerMod - 2, powerModTurns = max 1 x.powerModTurns }) broke
+
+                Nothing ->
+                    broke
+             )
+                |> say ("The wildcard picks a fight with a regulator and a launch window. −2 money, a group stumbles. Parody, not fact.") Nothing Nothing
+                |> spendAction
+            )
 
 
 applyAction : Game -> Action -> ActResult
@@ -2492,6 +2779,9 @@ applyAction game action =
 
             Lean targetId ->
                 leanOn game targetId
+
+            Invoke groupId ->
+                invokeSpecial game groupId
 
 
 resolveAttack : Game -> Kind -> Attacker -> String -> Int -> Maybe Parent -> ActResult
