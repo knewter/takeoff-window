@@ -59,6 +59,7 @@ module Engine exposing
     , forecast
     , rankTargets
     , settledCount
+    , publicLeaders
     )
 
 import Array
@@ -3913,6 +3914,24 @@ type alias TargetRank =
 settledCount : Player -> Int
 settledCount player =
     List.length (List.filter (\g -> g.privilegedTurns <= 0) player.grove)
+
+
+publicLeaders : Game -> List Int
+publicLeaders game =
+    let
+        best =
+            game.players
+                |> List.map settledCount
+                |> List.maximum
+                |> Maybe.withDefault 0
+    in
+    if best <= 0 then
+        []
+
+    else
+        game.players
+            |> List.filter (\p -> settledCount p == best)
+            |> List.map .id
 
 
 forecast : Game -> Player -> Forecast

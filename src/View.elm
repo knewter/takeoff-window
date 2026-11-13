@@ -333,7 +333,7 @@ viewDesktop model game =
                     [ span [] [ text "The open field" ]
                     , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
                     ]
-                , div [ class "market" ] (marketCards game you model.selectedId model.highlights)
+                , div [ class "market" ] (marketCards game you model.selectedId model.highlights (coachTarget model game))
                 ]
             , div [ class "col col-right" ]
                 [ div [ class "panel-head" ]
@@ -343,7 +343,7 @@ viewDesktop model game =
                 , div [ class "rivals" ] (rivalCards model game)
                 ]
             ]
-        , endTurn model game
+        , div [ class "turn-dock" ] [ endTurn model game ]
         ]
 
 
@@ -380,7 +380,7 @@ viewPhone model game =
                             [ span [] [ text "The open field" ]
                             , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
                             ]
-                        , div [ class "market" ] (marketCards game you model.selectedId model.highlights)
+                        , div [ class "market" ] (marketCards game you model.selectedId model.highlights (coachTarget model game))
                         ]
 
                 TabLog ->
@@ -404,7 +404,7 @@ viewPhone model game =
         , div [ class "phone-play" ]
             [ div [ class "phone-stage" ] [ stage ]
             ]
-        , endTurn model game
+        , div [ class "turn-dock" ] [ endTurn model game ]
         , tabBar model.tab model.modal
         ]
 
@@ -421,22 +421,18 @@ topbar model game _ =
     div [ class "topbar chrome" ]
         [ div [ class "hud" ]
             [ span [ class "hud-q" ] [ text (Engine.yearLabel game) ]
-            , button [ class "hud-meter", onClick OpenMeters, A.title "Money, and what changes next turn" ]
-                [ text "Money "
-                , text (String.fromInt cast.moneyNow ++ " ")
-                , span [ class (deltaClass cast.moneyDelta) ] [ text (deltaText cast.moneyDelta) ]
-                ]
-            , button [ class "hud-meter", onClick OpenMeters, A.title "Compute, and what changes next turn" ]
-                [ text "Compute "
-                , text (String.fromInt cast.computeNow ++ " ")
-                , span [ class (deltaClass cast.computeDelta) ] [ text (deltaText cast.computeDelta) ]
-                ]
             , div [ class "pips", A.title (if youAttacked game then "Attack already used" else "Attack still available") ]
                 [ span [ class "pip-label" ] [ text ("Actions " ++ String.fromInt game.actionsLeft) ]
                 , span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 2 ) ] ] []
                 , span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 1 ), ( "spent", youAttacked game ) ] ] []
                 ]
             , button [ class "hud-moves", onClick OpenMoves ] [ text "Moves" ]
+            ]
+        , div [ class "hud-meters" ]
+            [ button [ class "hud-meter", onClick OpenMeters, A.title "Money, and what changes next turn" ]
+                [ text ("Money " ++ String.fromInt cast.moneyNow ++ " (" ++ perTurn cast.moneyDelta ++ ")") ]
+            , button [ class "hud-meter", onClick OpenMeters, A.title "Compute, and what changes next turn" ]
+                [ text ("Compute " ++ String.fromInt cast.computeNow ++ " (" ++ perTurn cast.computeDelta ++ ")") ]
             ]
         , scoreStrip game
         ]
@@ -1139,17 +1135,17 @@ leakButton game you =
         []
 
 
-marketCards : Game -> Player -> Maybe String -> List String -> List (Html Msg)
-marketCards game you selected hits =
+marketCards : Game -> Player -> Maybe String -> List String -> Maybe String -> List (Html Msg)
+marketCards game you selected hits coachId =
     if List.isEmpty game.uncontrolled then
         [ div [ class "empty-tree" ] [ text "The open field is empty. The deck is exhausted." ] ]
 
     else
-        List.map (\g -> groupCard g (selected == Just g.instanceId) (List.member g.instanceId hits) Nothing (Engine.pressureOn you g.instanceId)) game.uncontrolled
+        List.map (\g -> groupCard g (selected == Just g.instanceId) (List.member g.instanceId hits) (coachId == Just g.instanceId) Nothing (Engine.pressureOn you g.instanceId)) game.uncontrolled
 
 
-groupCard : Group -> Bool -> Bool -> Maybe Player -> Int -> Html Msg
-groupCard g selected hit owner lean =
+groupCard : Group -> Bool -> Bool -> Bool -> Maybe Player -> Int -> Html Msg
+groupCard g selected hit coach owner lean =
     let
         card =
             Engine.cardOf g
@@ -1158,13 +1154,18 @@ groupCard g selected hit owner lean =
             typeOf card.type_
     in
     button
-        [ classList [ ( "gcard", True ), ( "selected", selected ), ( "privileged", g.privilegedTurns > 0 ), ( "hit", hit ) ]
+        [ classList [ ( "gcard", True ), ( "selected", selected ), ( "privileged", g.privilegedTurns > 0 ), ( "hit", hit ), ( "coach-target", coach ) ]
         , style "--tc" meta.color
         , onClick (Select g.instanceId)
         ]
         [ div [ class "art" ] [ cardArt card ]
         , if card.parody then
             span [ class "parody-stamp" ] [ text "PARODY" ]
+
+          else
+            text ""
+        , if coach then
+            span [ class "coach-tag" ] [ text "Tap" ]
 
           else
             text ""
@@ -2701,6 +2702,41 @@ deltaText n =
         String.fromInt n
 
 
+perTurn : Int -> String
+perTurn n =
+    (if n > 0 then
+        "+" ++ String.fromInt n
+
+     else if n < 0 then
+        String.fromInt n
+
+     else
+        "+0"
+    )
+        ++ "/turn"
+
+
+coachTarget : Model -> Game -> Maybe String
+coachTarget model game =
+    if model.hintSeen || model.screen /= Play then
+        Nothing
+
+    else
+        let
+            you =
+                Engine.getPlayer game 0
+
+            openIds =
+                List.map .instanceId game.uncontrolled
+        in
+        case List.filter (\r -> List.member r.groupId openIds) (Engine.rankTargets game you) of
+            best :: _ ->
+                Just best.groupId
+
+            [] ->
+                List.head game.uncontrolled |> Maybe.map .instanceId
+
+
 deltaClass : Int -> String
 deltaClass n =
     if n > 0 then
@@ -2718,9 +2754,6 @@ scoreStrip game =
     let
         rows =
             List.map (\p -> ( Engine.settledCount p, p )) game.players
-
-        lead =
-            List.map Tuple.first rows |> List.maximum |> Maybe.withDefault 0
     in
     div [ class "score-strip" ]
         (List.map
@@ -2738,7 +2771,7 @@ scoreStrip game =
                     width =
                         String.fromFloat (toFloat n / toFloat Engine.publicGoal * 100) ++ "%"
                 in
-                button [ class "score-cell", classList [ ( "you", you ), ( "lead", n == lead && n > 0 ) ], onClick OpenStandings ]
+                button [ class "score-cell", classList [ ( "you", you ), ( "lead", List.member p.id (Engine.publicLeaders game) ) ], onClick OpenStandings ]
                     [ span [ class "score-name" ] [ text f.short ]
                     , span [ class "score-bar" ] [ Html.i [ style "width" width ] [] ]
                     , span [ class "score-n" ] [ text ("Public " ++ String.fromInt n ++ "/6") ]
@@ -2750,7 +2783,7 @@ scoreStrip game =
                               else
                                 ""
                              )
-                                ++ (if n == lead && n > 0 then
+                                ++ (if List.member p.id (Engine.publicLeaders game) then
                                         (if you then " · " else "") ++ "Lead"
 
                                     else
@@ -3079,25 +3112,25 @@ abilityBlurb : Card -> Bool -> Html Msg
 abilityBlurb card owned =
     case card.special of
         Just "remove-founder" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can push a founder out of a rival's chair for $3.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "You can push a founder out of a rival's chair for $3.") ]
 
         Just "doomer-cult" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can recruit worriers for $1. A rival lab loses its nerve.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "You can recruit worriers for $1. A rival lab loses its nerve.") ]
 
         Just "accel-cult" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can recruit trainers for $1 and gain 1 compute.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "You can recruit trainers for $1 and gain 1 compute.") ]
 
         Just "ration-compute" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can ration 1 compute off the leader. While it is settled, rivals' chips yield 1 less.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "You can ration 1 compute off the leader. While it is settled, rivals' chips yield 1 less.") ]
 
         Just "wildcard-swing" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can take the swing: a coin-flip quarter.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "You can take the swing: a coin-flip quarter.") ]
 
         Just "founder-hunter" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "attacks you lead with it hit founders harder.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "Attacks you lead with it hit founders harder.") ]
 
         Just "controller-power-income" ->
-            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "your other power groups pay $1 more each turn.") ]
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "Your other power groups pay $1 more each turn.") ]
 
         _ ->
             text ""
