@@ -329,10 +329,7 @@ viewDesktop model game =
                     ]
                 , viewBanner viewer
                 , treeSvg game viewer (viewer.id == 0 && not game.gameOver && not model.busy) False False model.selectedId
-                , div [ class "panel-head market-head" ]
-                    [ span [] [ text "The open field" ]
-                    , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
-                    ]
+                , marketHead game
                 , div [ class "market" ] (marketCards game you model.selectedId model.highlights (coachTarget model game))
                 ]
             , div [ class "col col-right" ]
@@ -376,10 +373,7 @@ viewPhone model game =
 
                 TabMarket ->
                     div []
-                        [ div [ class "panel-head" ]
-                            [ span [] [ text "The open field" ]
-                            , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
-                            ]
+                        [ marketHead game
                         , div [ class "market" ] (marketCards game you model.selectedId model.highlights (coachTarget model game))
                         ]
 
@@ -1155,6 +1149,7 @@ groupCard g selected hit coach owner lean =
     in
     button
         [ classList [ ( "gcard", True ), ( "selected", selected ), ( "privileged", g.privilegedTurns > 0 ), ( "hit", hit ), ( "coach-target", coach ) ]
+        , A.attribute "data-coach" (if coach then g.instanceId else "")
         , style "--tc" meta.color
         , onClick (Select g.instanceId)
         ]
@@ -2714,6 +2709,14 @@ perTurn n =
         "+0"
     )
         ++ "/turn"
+
+
+marketHead : Game -> Html Msg
+marketHead game =
+    div [ class "panel-head market-head" ]
+        [ span [] [ text "Open field" ]
+        , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
+        ]
 
 
 coachTarget : Model -> Game -> Maybe String
