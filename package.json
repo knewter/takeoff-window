@@ -6,6 +6,7 @@
     "build": "elm make src/Main.elm --optimize --output=dist/game.js && elm make src/Sim.elm --optimize --output=dist/sim.js && node scripts/copy-assets.js",
     "dev": "node scripts/dev.js",
     "test": "elm-test",
+    "test:roll": "node scripts/roll-regression.js",
     "sim": "elm make src/Sim.elm --optimize --output=dist/sim.js && node scripts/sim.js",
     "sim:smoke": "elm make src/Sim.elm --output=dist/sim.js && node scripts/sim.js --smoke",
     "screenshots": "node scripts/screenshots.js"

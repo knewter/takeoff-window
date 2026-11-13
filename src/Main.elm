@@ -204,8 +204,11 @@ updateUi msg app =
         OpenGoal ->
             emit { app | ui = { ui | modal = View.Drawer "goal" } } Cmd.none
 
+        ToggleStrip ->
+            emit (mapUi (\base -> { base | stripMore = not base.stripMore }) app) Cmd.none
+
         Select id ->
-            emit { app | ui = { ui | selectedId = Just id } } Cmd.none
+            emit { app | ui = { ui | selectedId = Just id, stripMore = False } } Cmd.none
 
         DismissHint ->
             let
