@@ -16,6 +16,7 @@ module Engine exposing
     , Progress
     , agiCompute
     , aiDefense
+    , allInstances
     , alignmentsOf
     , applyAction
     , applyIncome
@@ -50,6 +51,14 @@ module Engine exposing
     , winReason
     , withRolls
     , yearLabel
+    , AttackPick
+    , FlowLine
+    , Forecast
+    , TargetRank
+    , bestAttack
+    , forecast
+    , rankTargets
+    , settledCount
     )
 
 import Array
@@ -3859,6 +3868,384 @@ shuffle items rng0 =
             step (n - 1) (Array.fromList items) rng0
     in
     ( Array.toList out, rngDone )
+
+
+-- Readouts. These do not change the rules. They describe the next income
+-- and the best legal attack so the table can show them.
+
+
+type alias FlowLine =
+    { label : String
+    , amount : Int
+    }
+
+
+type alias Forecast =
+    { moneyNow : Int
+    , moneyDelta : Int
+    , computeNow : Int
+    , computeDelta : Int
+    , moneyLines : List FlowLine
+    , computeLines : List FlowLine
+    , pressures : List String
+    }
+
+
+type alias AttackPick =
+    { attacker : Attacker
+    , attackerName : String
+    , spend : Int
+    , prob : Float
+    , strength : Int
+    }
+
+
+type alias TargetRank =
+    { groupId : String
+    , name : String
+    , ownerName : String
+    , kind : Kind
+    , prob : Float
+    , why : String
+    }
+
+
+settledCount : Player -> Int
+settledCount player =
+    List.length (List.filter (\g -> g.privilegedTurns <= 0) player.grove)
+
+
+forecast : Game -> Player -> Forecast
+forecast game player =
+    let
+        f =
+            factionOf player
+
+        moneyLines =
+            { label = "Patron stipend", amount = f.income }
+                :: List.concatMap (incomeParts player) player.grove
+
+        produced =
+            List.sum (List.map (\g -> effectiveCompute game g) player.grove)
+
+        afterPlant =
+            List.foldl
+                (\e acc ->
+                    if e.kind == "plant-delay" && e.playerId == player.id then
+                        max 0 (acc - 2)
+
+                    else
+                        acc
+                )
+                produced
+                game.effects
+
+        smuggle =
+            if game.flags.exportControls > 0 && player.factionId == "long-plan" && List.any (\g -> (cardOf g).type_ == "chipmaker" && g.privilegedTurns <= 0) player.grove then
+                1
+
+            else
+                0
+
+        computeLines =
+            List.concatMap (computeParts game) player.grove
+                ++ (if afterPlant /= produced then
+                        [ { label = "Power plant delay", amount = afterPlant - produced } ]
+
+                    else
+                        []
+                   )
+                ++ (if smuggle > 0 then
+                        [ { label = "Long Plan still ships a chip under export controls", amount = smuggle } ]
+
+                    else
+                        []
+                   )
+
+        pressures =
+            List.filter (not << String.isEmpty)
+                [ if game.flags.exportControls > 0 then
+                    "Export controls, " ++ String.fromInt game.flags.exportControls ++ " rounds left"
+
+                  else
+                    ""
+                , if game.flags.gpuShortage > 0 then
+                    "GPU shortage: groups produce no compute"
+
+                  else
+                    ""
+                , if game.flags.safetyLetter > 0 then
+                    "Safety letter, " ++ String.fromInt game.flags.safetyLetter ++ " rounds left"
+
+                  else
+                    ""
+                , if game.flags.visaFreeze > 0 then
+                    "Visa freeze: talent cannot lead an attack"
+
+                  else
+                    ""
+                ]
+                ++ List.filterMap
+                    (\( id, n ) ->
+                        if n > 0 then
+                            case findInstance game id of
+                                Just g ->
+                                    Just ("Leaning on " ++ (cardOf g).name ++ " +" ++ String.fromInt n)
+
+                                Nothing ->
+                                    Nothing
+
+                        else
+                            Nothing
+                    )
+                    player.pressure
+    in
+    { moneyNow = totalMoney player
+    , moneyDelta = List.sum (List.map .amount moneyLines)
+    , computeNow = player.compute
+    , computeDelta = afterPlant + smuggle
+    , moneyLines = moneyLines
+    , computeLines = computeLines
+    , pressures = pressures
+    }
+
+
+incomeParts : Player -> Group -> List FlowLine
+incomeParts player g =
+    let
+        card =
+            cardOf g
+
+        name =
+            card.name
+    in
+    if g.privilegedTurns > 0 then
+        [ { label = name ++ " is privileged and pays nothing", amount = 0 } ]
+
+    else
+        let
+            bonus =
+                (if player.factionId == "long-plan" && card.type_ == "chipmaker" then
+                    [ { label = name ++ " Long Plan fab bonus", amount = 1 } ]
+
+                 else
+                    []
+                )
+                    ++ (if player.factionId == "crown" && (card.type_ == "power" || card.type_ == "datacenter") then
+                            [ { label = name ++ " Crown infrastructure bonus", amount = 1 } ]
+
+                        else
+                            []
+                       )
+                    ++ (if List.any (\x -> x.cardId == "interconnect") player.grove && card.type_ == "power" && card.id /= "interconnect" then
+                            [ { label = name ++ " Interconnect bonus", amount = 1 } ]
+
+                        else
+                            []
+                       )
+        in
+        { label = name ++ " income", amount = card.income } :: bonus
+
+
+computeParts : Game -> Group -> List FlowLine
+computeParts game g =
+    let
+        card =
+            cardOf g
+
+        name =
+            card.name
+
+        raw =
+            card.compute
+
+        heliosEarly =
+            g.privilegedTurns == 1 && heliosLabOrChip game g
+    in
+    if raw <= 0 then
+        []
+
+    else if game.flags.gpuShortage > 0 then
+        [ { label = name ++ " compute, negated by the GPU shortage", amount = 0 } ]
+
+    else if g.privilegedTurns > 0 && not heliosEarly then
+        [ { label = name ++ " is privileged and produces no compute", amount = 0 } ]
+
+    else
+        let
+            ration =
+                raw > 0 && rationApplies game g
+
+            afterRation =
+                if ration then
+                    max 0 (raw - 1)
+
+                else
+                    raw
+
+            disabledCut =
+                if g.disabledTurns > 0 then
+                    afterRation - (afterRation // 2)
+
+                else
+                    0
+        in
+        { label = name ++ " compute", amount = raw }
+            :: (if ration then
+                    [ { label = "Green Jacket rations " ++ name, amount = -1 } ]
+
+                else
+                    []
+               )
+            ++ (if disabledCut > 0 then
+                    [ { label = name ++ " is disabled", amount = -disabledCut } ]
+
+                else
+                    []
+               )
+
+
+bestAttack : Game -> Player -> Group -> Kind -> Maybe AttackPick
+bestAttack game player target kind =
+    let
+        named atk =
+            case atk of
+                PatronAtk ->
+                    (factionOf player).name
+
+                GroupAtk iid ->
+                    case findInstance game iid of
+                        Just g ->
+                            (cardOf g).name
+
+                        Nothing ->
+                            "A group"
+
+        options =
+            (PatronAtk :: List.map (\g -> GroupAtk g.instanceId) player.grove)
+                |> List.filter
+                    (\atk ->
+                        case canAttack game player atk target kind of
+                            Ok _ ->
+                                True
+
+                            Err _ ->
+                                False
+                    )
+                |> List.concatMap
+                    (\atk ->
+                        List.filterMap
+                            (\spend ->
+                                if spend > totalMoney player then
+                                    Nothing
+
+                                else
+                                    let
+                                        br =
+                                            attackStrength game player.id atk target.instanceId kind spend 0
+                                    in
+                                    Just
+                                        { attacker = atk
+                                        , attackerName = named atk
+                                        , spend = spend
+                                        , prob = br.prob
+                                        , strength = br.strength
+                                        }
+                            )
+                            (List.range 0 maxAttackSpend)
+                    )
+    in
+    options
+        |> List.sortBy (\o -> ( negate o.prob, o.spend ))
+        |> List.head
+
+
+rankTargets : Game -> Player -> List TargetRank
+rankTargets game player =
+    let
+        kinds =
+            [ Control, Neutralize, Destroy ]
+
+        one kind g =
+            case bestAttack game player g kind of
+                Nothing ->
+                    Nothing
+
+                Just chosen ->
+                    let
+                        owner =
+                            case g.ownerId of
+                                Just oid ->
+                                    Just (getPlayer game oid)
+
+                                Nothing ->
+                                    Nothing
+
+                        settled =
+                            g.privilegedTurns <= 0
+
+                        drops =
+                            settled && owner /= Nothing
+
+                        n =
+                            case owner of
+                                Just o ->
+                                    settledCount o
+
+                                Nothing ->
+                                    0
+
+                        why =
+                            case owner of
+                                Just o ->
+                                    if drops then
+                                        o.name ++ " goes from " ++ String.fromInt n ++ "/6 settled groups to " ++ String.fromInt (n - 1) ++ "/6"
+
+                                    else
+                                        "Removes " ++ (cardOf g).name ++ " before it settles for " ++ o.name
+
+                                Nothing ->
+                                    if kind == Control then
+                                        "Takes " ++ (cardOf g).name ++ " from the open field"
+
+                                    else
+                                        "Removes " ++ (cardOf g).name ++ " from the open field"
+
+                        impact =
+                            (if drops then
+                                1
+
+                             else if kind == Control then
+                                0.45
+
+                             else
+                                0.2
+                            )
+                                + toFloat (effectiveCompute game g) / 5
+                    in
+                    Just
+                        ( chosen.prob * impact
+                        , { groupId = g.instanceId
+                          , name = (cardOf g).name
+                          , ownerName =
+                                case owner of
+                                    Just o ->
+                                        o.name
+
+                                    Nothing ->
+                                        "Open field"
+                          , kind = kind
+                          , prob = chosen.prob
+                          , why = why ++ " · " ++ String.fromInt (round (chosen.prob * 100)) ++ "%"
+                          }
+                        )
+    in
+    allInstances game
+        |> List.filter (\g -> g.ownerId /= Just player.id)
+        |> List.concatMap (\g -> List.filterMap (\k -> one k g) kinds)
+        |> List.sortBy (\( score, _ ) -> negate score)
+        |> List.map Tuple.second
+        |> List.take 6
 
 
 unique : List a -> List a

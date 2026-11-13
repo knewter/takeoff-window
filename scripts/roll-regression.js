@@ -13,6 +13,8 @@ async function openGame(page, width) {
     waitUntil: "domcontentloaded"
   });
   await page.waitForSelector(".end-turn");
+  const score = await page.locator(".score-strip").innerText();
+  if (!/\/6/.test(score)) throw new Error("score strip missing " + score);
   if (width < 500) {
     const open = page.locator(".tabbar button", { hasText: "Open" });
     if (await open.count()) await open.click();
@@ -64,6 +66,8 @@ async function rollVerb(page, verb) {
   const btn = page.locator(".act", { hasText: verb }).first();
   if (await btn.isDisabled()) throw new Error(verb + " disabled on the open card");
   await btn.click();
+  const roll = page.locator("button", { hasText: "Roll" });
+  if (await roll.count()) await roll.first().click();
   await page.waitForTimeout(200);
   const modal = await page.evaluate(() => {
     const m = document.querySelector(".modal");
@@ -115,6 +119,7 @@ async function rollVerb(page, verb) {
     await tapCard(page);
     await buttonsFit(page, "412");
     await page.locator(".act", { hasText: "Take control" }).first().click();
+    await page.locator("button", { hasText: "Roll" }).click();
     await page.waitForFunction(() => document.body.innerText.includes("SUCCESS") || document.body.innerText.includes("FAILS"));
     const first = await page.locator(".roll-res").innerText();
     if (first !== "SUCCESS" && first !== "FAILS") throw new Error("no dice result " + first);
@@ -132,6 +137,11 @@ async function rollVerb(page, verb) {
     await page.waitForTimeout(200);
     const quarter = await page.locator(".hud-q").innerText();
     await page.locator(".end-turn").click();
+    const confirmEnd = page.locator("button", { hasText: "End the turn" });
+    try {
+      await confirmEnd.waitFor({ timeout: 1500 });
+      await confirmEnd.click();
+    } catch (err) {}
     await page.waitForFunction((q) => {
       const el = document.querySelector(".hud-q");
       return el && el.textContent !== q;
