@@ -1,0 +1,18 @@
+{
+  "name": "takeoff-window",
+  "private": true,
+  "description": "Takeoff Window — a satirical Elm strategy game about the race to AGI, 2026–2031.",
+  "scripts": {
+    "build": "elm make src/Main.elm --optimize --output=dist/game.js && elm make src/Sim.elm --optimize --output=dist/sim.js && node scripts/copy-assets.js",
+    "dev": "node scripts/dev.js",
+    "test": "elm-test",
+    "sim": "elm make src/Sim.elm --optimize --output=dist/sim.js && node scripts/sim.js",
+    "sim:smoke": "elm make src/Sim.elm --output=dist/sim.js && node scripts/sim.js --smoke",
+    "screenshots": "node scripts/screenshots.js"
+  },
+  "devDependencies": {
+    "elm": "^0.19.1-6",
+    "elm-test": "^0.19.1-revision12",
+    "playwright": "^1.49.1"
+  }
+}
