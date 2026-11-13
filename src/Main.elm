@@ -204,6 +204,21 @@ updateUi msg app =
         OpenGoal ->
             emit { app | ui = { ui | modal = View.Drawer "goal" } } Cmd.none
 
+        OpenStandings ->
+            emit { app | ui = { ui | modal = View.Standings } } Cmd.none
+
+        OpenMeters ->
+            emit { app | ui = { ui | modal = View.Meters } } Cmd.none
+
+        OpenMoves ->
+            emit { app | ui = { ui | modal = View.Moves } } Cmd.none
+
+        OpenRecap ->
+            emit { app | ui = { ui | modal = View.Recap } } Cmd.none
+
+        ClearFlash ->
+            emit { app | ui = { ui | highlights = [] } } Cmd.none
+
         ToggleStrip ->
             emit (mapUi (\base -> { base | stripMore = not base.stripMore }) app) Cmd.none
 
@@ -267,15 +282,24 @@ updateUi msg app =
                                                         False
                                             )
 
-                                attacker =
-                                    if List.member PatronAtk usable then
-                                        PatronAtk
+                                pick =
+                                    Engine.bestAttack game you target kind
 
-                                    else
-                                        List.head usable |> Maybe.withDefault PatronAtk
+                                attacker =
+                                    case pick of
+                                        Just chosen ->
+                                            chosen.attacker
+
+                                        Nothing ->
+                                            List.head usable |> Maybe.withDefault PatronAtk
 
                                 sug =
-                                    Engine.bestValueSpend game you attacker target kind
+                                    case pick of
+                                        Just chosen ->
+                                            chosen.spend
+
+                                        Nothing ->
+                                            0
 
                                 parents =
                                     Engine.freeParents you
@@ -301,8 +325,24 @@ updateUi msg app =
                     case Engine.findInstance game form.targetId of
                         Just target ->
                             let
+                                you =
+                                    Engine.getPlayer game 0
+
+                                cap =
+                                    min (Engine.totalMoney you) Engine.maxAttackSpend
+
                                 sug =
-                                    Engine.bestValueSpend game (Engine.getPlayer game 0) attacker target form.kind
+                                    List.range 0 cap
+                                        |> List.sortBy
+                                            (\s ->
+                                                let
+                                                    p =
+                                                        (Engine.attackStrength game you.id attacker target.instanceId form.kind s 0).prob
+                                                in
+                                                ( negate p, s )
+                                            )
+                                        |> List.head
+                                        |> Maybe.withDefault 0
                             in
                             emit { app | ui = { ui | modal = View.AttackModal { form | attacker = attacker, spend = sug } } } Cmd.none
 
@@ -344,27 +384,24 @@ updateUi msg app =
                                 you =
                                     Engine.getPlayer game 0
 
-                                usable =
-                                    (PatronAtk :: List.map (\g -> GroupAtk g.instanceId) you.grove)
-                                        |> List.filter
-                                            (\atk ->
-                                                case Engine.canAttack game you atk target kind of
-                                                    Ok _ ->
-                                                        True
-
-                                                    Err _ ->
-                                                        False
-                                            )
+                                pick =
+                                    Engine.bestAttack game you target kind
 
                                 attacker =
-                                    if List.member PatronAtk usable then
-                                        PatronAtk
+                                    case pick of
+                                        Just chosen ->
+                                            chosen.attacker
 
-                                    else
-                                        List.head usable |> Maybe.withDefault PatronAtk
+                                        Nothing ->
+                                            PatronAtk
 
                                 spend =
-                                    Engine.bestValueSpend game you attacker target kind
+                                    case pick of
+                                        Just chosen ->
+                                            chosen.spend
+
+                                        Nothing ->
+                                            0
 
                                 parents =
                                     Engine.freeParents you
@@ -376,25 +413,10 @@ updateUi msg app =
                                     else
                                         List.head parents |> Maybe.withDefault Patron
 
-                                result =
-                                    Engine.applyAction game (Attack kind attacker id spend (Just parent))
-
-                                next =
-                                    if result.ok then
-                                        result.game
-
-                                    else
-                                        game
-
                                 form =
                                     { targetId = id, kind = kind, attacker = attacker, spend = spend, parent = parent }
                             in
-                            if next.gameOver then
-                                presentVictory { app | ui = { ui | game = Just next, modal = View.RollResult form } }
-
-                            else
-                                emit { app | ui = { ui | game = Just next, modal = View.RollResult form } }
-                                    (Process.sleep 1400 |> Task.perform (\_ -> Ui CloseModal))
+                            emit { app | ui = { ui | modal = View.AttackModal form } } Cmd.none
 
                         Nothing ->
                             ( app, Cmd.none )
@@ -439,6 +461,9 @@ updateUi msg app =
                 View.VictoryModal ->
                     ( app, Cmd.none )
 
+                View.Recap ->
+                    emit { app | ui = maybeEvent { ui | modal = View.NoModal } } (Process.sleep 1600 |> Task.perform (\_ -> Ui ClearFlash))
+
                 _ ->
                     emit { app | ui = { ui | modal = View.NoModal } } Cmd.none
 
@@ -462,6 +487,30 @@ updateUi msg app =
 
                 _ ->
                     updateUi CloseModal app
+
+        AskEnd ->
+            case ui.game of
+                Just game ->
+                    if game.actionsLeft > 0 then
+                        emit
+                            { app
+                                | ui =
+                                    { ui
+                                        | modal =
+                                            View.Confirm
+                                                ("End turn with " ++ String.fromInt game.actionsLeft ++ (if game.actionsLeft == 1 then " action" else " actions") ++ " unused?")
+                                                "You can still tap a card."
+                                                "End the turn"
+                                                PassTurn
+                                    }
+                            }
+                            Cmd.none
+
+                    else
+                        updateUi PassTurn app
+
+                Nothing ->
+                    ( app, Cmd.none )
 
         PassTurn ->
             apply (Pass) app
@@ -504,7 +553,7 @@ updateUi msg app =
                     ( app, Cmd.none )
 
         AskDrop id ->
-            emit { app | ui = { ui | modal = View.Confirm "Release this group?" "It returns to the open field, along with any subordinates. This costs an action." (DoDrop id) } } Cmd.none
+            emit { app | ui = { ui | modal = View.Confirm "Release this group?" "It returns to the open field, along with any subordinates. This costs an action." "Release" (DoDrop id) } } Cmd.none
 
         DoDrop id ->
             apply (Drop id) { app | ui = { ui | modal = View.NoModal } }
@@ -553,7 +602,7 @@ updateUi msg app =
             emit { app | ui = { ui | modal = View.EventModal } } Cmd.none
 
         SpeedUp ->
-            emit { app | ui = { ui | speed = 40 } } Cmd.none
+            emit { app | ui = { ui | speed = 0 } } Cmd.none
 
 
 apply : Action -> App -> ( App, Cmd Msg )
@@ -630,10 +679,43 @@ schedule app =
                 presentVictory app
 
             else if shouldDrive app.ui game then
-                emit (mapUi (\ui -> { ui | busy = True }) app) (Process.sleep (toFloat (max 0 app.ui.speed)) |> Task.perform (\_ -> Tick))
+                let
+                    delay =
+                        if app.ui.driveAll then
+                            max 0 app.ui.speed
+
+                        else
+                            0
+                in
+                emit (mapUi (\ui -> { ui | busy = True }) app) (Process.sleep (toFloat delay) |> Task.perform (\_ -> Tick))
 
             else
-                emit (mapUi (\ui -> maybeEvent { ui | busy = False }) app) Cmd.none
+                let
+                    ui =
+                        app.ui
+
+                    lines =
+                        game.log
+                            |> List.drop ui.humanMark
+                            |> List.map .text
+                            |> List.filter (\t -> not (String.startsWith "You " t))
+
+                    hits =
+                        Engine.allInstances game
+                            |> List.filter (\g -> List.any (\line -> String.contains (Engine.cardOf g).name line) lines)
+                            |> List.map .instanceId
+
+                    base =
+                        { ui | busy = False, humanMark = List.length game.log, highlights = hits }
+
+                    shown =
+                        if app.ui.driveAll || List.isEmpty lines then
+                            maybeEvent { base | highlights = [] }
+
+                        else
+                            { base | recapLines = lines, modal = View.Recap }
+                in
+                emit { app | ui = shown } (if List.isEmpty hits then Cmd.none else Process.sleep 2200 |> Task.perform (\_ -> Ui ClearFlash))
 
 
 shouldDrive : Model -> Engine.Game -> Bool
@@ -687,9 +769,12 @@ bootGame app seedText skipReveal drive reply =
                 , modal = View.NoModal
                 , viewingPlayer = 0
                 , selectedId = Nothing
-                , tab = View.TabTree
+                , tab = View.TabMarket
                 , seenEvent = Nothing
                 , actionsReady = True
+                , humanMark = List.length game.log
+                , recapLines = []
+                , highlights = []
             }
 
         started =

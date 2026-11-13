@@ -35,10 +35,14 @@ type Modal
     | RollResult AttackForm
     | VictoryModal
     | ReorgModal String Parent
-    | Confirm String String Msg
+    | Confirm String String String Msg
     | CardSheet String
     | Drawer String
     | Flash String
+    | Standings
+    | Meters
+    | Moves
+    | Recap
 
 
 type alias AttackForm =
@@ -70,6 +74,9 @@ type alias Model =
     , hintSeen : Bool
     , bannerKey : Maybe String
     , stripMore : Bool
+    , humanMark : Int
+    , recapLines : List String
+    , highlights : List String
     }
 
 
@@ -94,6 +101,7 @@ type Msg
     | CommitAttack Kind
     | CloseModal
     | ReviewBoard
+    | AskEnd
     | PassTurn
     | DoLeak
     | DoLean String
@@ -109,6 +117,11 @@ type Msg
     | DismissHint
     | DismissBanner
     | OpenGoal
+    | OpenStandings
+    | OpenMeters
+    | OpenMoves
+    | OpenRecap
+    | ClearFlash
     | ToggleStrip
     | SpeedUp
     | Backdrop
@@ -124,17 +137,20 @@ initUi width height seedInput =
     , selectedId = Nothing
     , viewingPlayer = 0
     , modal = NoModal
-    , tab = TabTree
+    , tab = TabMarket
     , width = width
     , height = height
     , seenEvent = Nothing
     , busy = False
-    , speed = 420
+    , speed = 0
     , driveAll = False
     , actionsReady = True
     , hintSeen = False
     , bannerKey = Nothing
     , stripMore = False
+    , humanMark = 0
+    , recapLines = []
+    , highlights = []
     }
 
 
@@ -222,8 +238,7 @@ factionCard selected f =
         , style "--fc" f.color
         , onClick (PickFaction f.id)
         ]
-        [ div [ class "stripe" ] []
-        , h3 [] [ text f.name ]
+        [ h3 [] [ text f.name ]
         , div [ class "motto" ] [ text f.motto ]
         , div [ class "stats" ] [ text ("Power " ++ String.fromInt f.power ++ " · Income " ++ String.fromInt f.income ++ " · Sockets " ++ String.fromInt f.sockets) ]
         , div [ class "flavor" ] [ text f.flavor ]
@@ -250,8 +265,7 @@ viewReveal model =
             in
             div [ class "screen-center" ]
                 [ div [ class "reveal-card", style "--fc" f.color ]
-                    [ div [ class "stripe", style "background" f.color ] []
-                    , div [ class "k" ] [ text ("Classified briefing · " ++ String.fromInt game.seed) ]
+                    [ div [ class "k" ] [ text ("Classified briefing · " ++ String.fromInt game.seed) ]
                     , h1 [ style "color" f.color ] [ text f.name ]
                     , div [ class "motto" ] [ text f.motto ]
                     , p [ class "flavor" ] [ text f.flavor ]
@@ -319,7 +333,7 @@ viewDesktop model game =
                     [ span [] [ text "The open field" ]
                     , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
                     ]
-                , div [ class "market" ] (marketCards game you model.selectedId)
+                , div [ class "market" ] (marketCards game you model.selectedId model.highlights)
                 ]
             , div [ class "col col-right" ]
                 [ div [ class "panel-head" ]
@@ -346,11 +360,10 @@ viewPhone model game =
             case model.tab of
                 TabTree ->
                     div [ class "tree-stage" ]
-                        [ youLine you
-                        , viewBanner viewer
+                        [ viewBanner viewer
                         , div [ class "tree-mobile" ]
                             [ div [ class "tree-scroller" ] [ treeSvg game viewer (viewer.id == 0 && not game.gameOver && not model.busy) True (landscape model) model.selectedId ]
-                            , treeList game viewer model.selectedId
+                            , treeList game viewer model.selectedId model.highlights
                             ]
                         ]
 
@@ -367,7 +380,7 @@ viewPhone model game =
                             [ span [] [ text "The open field" ]
                             , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
                             ]
-                        , div [ class "market" ] (marketCards game you model.selectedId)
+                        , div [ class "market" ] (marketCards game you model.selectedId model.highlights)
                         ]
 
                 TabLog ->
@@ -397,16 +410,35 @@ viewPhone model game =
 
 
 topbar : Model -> Game -> Bool -> Html Msg
-topbar model game isPhone =
-    div [ class "topbar hud", classList [ ( "topbar-phone", isPhone ) ] ]
-        [ span [ class "hud-q" ] [ text (Engine.yearLabel game) ]
-        , button [ class "hud-goal", onClick OpenGoal, A.title "Settled groups toward a public goal" ]
-            [ text (goalMark game) ]
-        , div [ class "pips", A.title (if youAttacked game then "Attack already used" else "Attack still available") ]
-            [ span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 2 ) ] ] []
-            , span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 1 ), ( "spent", youAttacked game ) ] ] []
+topbar model game _ =
+    let
+        you =
+            Engine.getPlayer game 0
+
+        cast =
+            Engine.forecast game you
+    in
+    div [ class "topbar chrome" ]
+        [ div [ class "hud" ]
+            [ span [ class "hud-q" ] [ text (Engine.yearLabel game) ]
+            , button [ class "hud-meter", onClick OpenMeters, A.title "Money, and what changes next turn" ]
+                [ text "Money "
+                , text (String.fromInt cast.moneyNow ++ " ")
+                , span [ class (deltaClass cast.moneyDelta) ] [ text (deltaText cast.moneyDelta) ]
+                ]
+            , button [ class "hud-meter", onClick OpenMeters, A.title "Compute, and what changes next turn" ]
+                [ text "Compute "
+                , text (String.fromInt cast.computeNow ++ " ")
+                , span [ class (deltaClass cast.computeDelta) ] [ text (deltaText cast.computeDelta) ]
+                ]
+            , div [ class "pips", A.title (if youAttacked game then "Attack already used" else "Attack still available") ]
+                [ span [ class "pip-label" ] [ text ("Actions " ++ String.fromInt game.actionsLeft) ]
+                , span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 2 ) ] ] []
+                , span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 1 ), ( "spent", youAttacked game ) ] ] []
+                ]
+            , button [ class "hud-moves", onClick OpenMoves ] [ text "Moves" ]
             ]
-        , span [ class "hud-cash" ] [ text ("$" ++ String.fromInt (Engine.totalMoney (Engine.getPlayer game 0))) ]
+        , scoreStrip game
         ]
 
 
@@ -438,8 +470,7 @@ youCard you game compact =
             String.fromFloat (goal.ratio * 100) ++ "%"
     in
     div [ class "you-card", classList [ ( "you-card-compact", compact ) ], style "--fc" f.color ]
-        [ div [ class "stripe" ] []
-        , button [ class "goal-open", onClick OpenGoal, A.title "Open your goal" ] [ text "Goal" ]
+        [ button [ class "goal-open", onClick OpenGoal, A.title "Open your goal" ] [ text "Goal" ]
         , if compact then
             div [ class "you-compact-head" ]
                 [ h2 [] [ text f.name ]
@@ -498,7 +529,7 @@ turnHint model =
         text ""
 
     else
-        div [ class "coach" ] [ text "Tap a card to act on it" ]
+        div [ class "coach" ] [ text "Tap a card in the open field to act on it" ]
 
 
 actionBar : Model -> Game -> Html Msg
@@ -785,19 +816,19 @@ invokeOffer you g =
     in
     case card.special of
         Just "doomer-cult" ->
-            base "Recruit" 1 "A doomer cult recruits. A rival lab loses 1 power, and safety pressure ticks. Parody, not fact."
+            base "Recruit worriers" 1 "Spend $1. A rival lab loses 1 power, and safety pressure ticks. Parody, not fact."
 
         Just "accel-cult" ->
-            base "Recruit" 1 "An accelerationist cult poaches. You gain 1 compute and a rival lab loses 1 power. Parody, not fact."
+            base "Recruit trainers" 1 "Spend $1. You gain 1 compute and a rival lab loses 1 power. Parody, not fact."
 
         Just "remove-founder" ->
-            base "Remove founder" 3 "Cut a founder loose from their patron for 3. A briefing leaks and the service is exposed. Parody, not fact."
+            base "Push out a founder" 3 "Spend $3 to push a rival's founder out of their chair. A briefing leaks. Parody, not fact."
 
         Just "ration-compute" ->
-            base "Ration" 0 "The chip kingpin moves one compute toward you and off the rival with the most. Parody, not fact."
+            base "Ration compute" 0 "Move 1 compute toward you and off the rival with the most. Parody, not fact."
 
         Just "wildcard-swing" ->
-            base "Swing" 0 "A coin-flip quarter. Either a windfall, or a stumble. Parody, not fact."
+            base "Take the swing" 0 "A coin-flip quarter. Either a windfall, or a stumble. Parody, not fact."
 
         _ ->
             Nothing
@@ -857,19 +888,22 @@ attackOffer game you yourTurn label kind selected =
 
                 else
                     case firstAttacker game you g kind of
-                        Just atk ->
-                            let
-                                spend =
-                                    Engine.bestValueSpend game you atk g kind
+                        Just _ ->
+                            case Engine.bestAttack game you g kind of
+                                Just pick ->
+                                    { idle
+                                        | enabled = True
+                                        , reason =
+                                            "$"
+                                                ++ String.fromInt pick.spend
+                                                ++ " · "
+                                                ++ String.fromInt (round (pick.prob * 100))
+                                                ++ "%"
+                                        , act = CommitAttack kind
+                                    }
 
-                                br =
-                                    Engine.attackStrength game you.id atk g.instanceId kind spend 0
-                            in
-                            { idle
-                                | enabled = True
-                                , reason = String.fromInt (round (br.prob * 100)) ++ "% at $" ++ String.fromInt spend
-                                , act = CommitAttack kind
-                            }
+                                Nothing ->
+                                    { idle | reason = "No legal attacker" }
 
                         Nothing ->
                             { idle | reason = shortReason (reasonText (Engine.canAttack game you PatronAtk g kind)) }
@@ -1105,17 +1139,17 @@ leakButton game you =
         []
 
 
-marketCards : Game -> Player -> Maybe String -> List (Html Msg)
-marketCards game you selected =
+marketCards : Game -> Player -> Maybe String -> List String -> List (Html Msg)
+marketCards game you selected hits =
     if List.isEmpty game.uncontrolled then
         [ div [ class "empty-tree" ] [ text "The open field is empty. The deck is exhausted." ] ]
 
     else
-        List.map (\g -> groupCard g (selected == Just g.instanceId) Nothing (Engine.pressureOn you g.instanceId)) game.uncontrolled
+        List.map (\g -> groupCard g (selected == Just g.instanceId) (List.member g.instanceId hits) Nothing (Engine.pressureOn you g.instanceId)) game.uncontrolled
 
 
-groupCard : Group -> Bool -> Maybe Player -> Int -> Html Msg
-groupCard g selected owner lean =
+groupCard : Group -> Bool -> Bool -> Maybe Player -> Int -> Html Msg
+groupCard g selected hit owner lean =
     let
         card =
             Engine.cardOf g
@@ -1124,7 +1158,7 @@ groupCard g selected owner lean =
             typeOf card.type_
     in
     button
-        [ classList [ ( "gcard", True ), ( "selected", selected ), ( "privileged", g.privilegedTurns > 0 ) ]
+        [ classList [ ( "gcard", True ), ( "selected", selected ), ( "privileged", g.privilegedTurns > 0 ), ( "hit", hit ) ]
         , style "--tc" meta.color
         , onClick (Select g.instanceId)
         ]
@@ -1134,7 +1168,6 @@ groupCard g selected owner lean =
 
           else
             text ""
-        , div [ class "typebar" ] []
         , div [ class "body" ]
             [ div [ class "type" ] [ text (meta.label ++ (if card.parody then " · PARODY" else "") ++ (if g.exhausted then " · ACTED" else "") ++ (if g.disabledTurns > 0 then " · DISABLED" else "")) ]
             , div [ class "name" ] [ text card.name ]
@@ -1167,6 +1200,7 @@ rivalCards model game =
                         , span [ class "dots" ] [ text p.name ]
                         ]
                     , threatMeter game p
+                    , bestHitLine game (Engine.getPlayer game 0) p
                     , div [ class "rival-meters" ]
                         [ span [ class "m" ] [ text ("$ " ++ String.fromInt (Engine.totalMoney p)) ]
                         , span [ class "c" ] [ text ("C " ++ String.fromInt p.compute) ]
@@ -1351,8 +1385,8 @@ viewBanner viewer =
             ]
 
 
-treeList : Game -> Player -> Maybe String -> Html Msg
-treeList game player selected =
+treeList : Game -> Player -> Maybe String -> List String -> Html Msg
+treeList game player selected hits =
     let
         f =
             factionOf player
@@ -1364,13 +1398,12 @@ treeList game player selected =
             in
             button
                 [ class "tree-row"
-                , classList [ ( "selected", selected == Just g.instanceId ) ]
+                , classList [ ( "selected", selected == Just g.instanceId ), ( "hit", List.member g.instanceId hits ) ]
                 , style "--tc" (typeOf card.type_).color
                 , style "margin-left" (String.fromInt (min depth 4 * 16) ++ "px")
                 , onClick (Select g.instanceId)
                 ]
-                [ span [ class "tr-stripe" ] []
-                , span [ class "tr-body" ]
+                [ span [ class "tr-body" ]
                     [ div [ class "tr-type" ] [ text (typeOf card.type_).label ]
                     , div [ class "tr-name" ] [ text card.name ]
                     , div [ class "tr-nums" ]
@@ -1386,8 +1419,7 @@ treeList game player selected =
     div [ class "tree-list" ]
         (button
             [ class "tree-row patron", classList [ ( "selected", selected == Just "patron" ) ], style "--tc" f.color, onClick (Select "patron") ]
-            [ span [ class "tr-stripe" ] []
-            , span [ class "tr-body" ]
+            [ span [ class "tr-body" ]
                 [ div [ class "tr-type" ] [ text "Patron" ]
                 , div [ class "tr-name" ] [ text f.name ]
                 ]
@@ -1715,7 +1747,6 @@ drawNodes game player interactive compact selected (Placed node) =
             if node.key == "patron" then
                 Svg.g ([ SA.class ("node-g patron" ++ (if selected == Just "patron" then " selected" else "")) ] ++ click)
                     [ Svg.rect [ SA.class "node-bg", SA.x (fnum node.x), SA.y (fnum node.y), SA.width (fnum node.selfW), SA.height (fnum node.selfH), SA.rx "8" ] []
-                    , Svg.rect [ SA.x (fnum node.x), SA.y (fnum node.y), SA.width (fnum node.selfW), SA.height "4", SA.rx "2", SA.fill f.color ] []
                     , Svg.text_ [ SA.class "node-sub", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 18)) ] [ Svg.text "PATRON" ]
                     , Svg.text_ [ SA.class "node-title", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 38)) ] [ Svg.text f.name ]
                     , Svg.text_ [ SA.class "node-num", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 58)) ] [ Svg.text ("P " ++ String.fromInt f.power ++ "  I " ++ String.fromInt f.income ++ "  $ " ++ String.fromInt player.money ++ "  C " ++ String.fromInt player.compute) ]
@@ -1733,7 +1764,6 @@ drawNodes game player interactive compact selected (Placed node) =
                         in
                         Svg.g ([ SA.class ("node-g" ++ (if selected == Just node.key then " selected" else "")) ] ++ click)
                             ([ Svg.rect [ SA.class "node-bg", SA.x (fnum node.x), SA.y (fnum node.y), SA.width (fnum node.selfW), SA.height (fnum node.selfH), SA.rx "7" ] []
-                             , Svg.rect [ SA.x (fnum node.x), SA.y (fnum node.y), SA.width (fnum node.selfW), SA.height "4", SA.rx "2", SA.fill (typeOf card.type_).color ] []
                              , Svg.text_ [ SA.class "node-sub", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 16)) ] [ Svg.text ((typeOf card.type_).label ++ (if g.disabledTurns > 0 then " · DOWN" else "")) ]
                              ]
                                 ++ List.indexedMap (\i line -> Svg.text_ [ SA.class "node-title", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 32 + toFloat i * 14)), SA.fontSize "13" ] [ Svg.text line ]) lines
@@ -1793,10 +1823,15 @@ threatMeter game p =
         ]
 
 
-drawerLog : Game -> Html Msg
-drawerLog game =
+drawerLog : Model -> Game -> Html Msg
+drawerLog model game =
     div []
         [ h2 [] [ text "Turn log" ]
+        , if List.isEmpty model.recapLines then
+            text ""
+
+          else
+            button [ class "btn", onClick OpenRecap ] [ text "Last rival turn" ]
         , div [ class "log" ] (logEntries game)
         ]
 
@@ -1861,7 +1896,7 @@ viewModal model =
         ReorgModal id parent ->
             shell model (reorgBody model id parent) (text "")
 
-        Confirm title body yes ->
+        Confirm title body yesLabel yes ->
             shell model
                 (div []
                     [ h2 [] [ text title ]
@@ -1870,7 +1905,17 @@ viewModal model =
                 )
                 (div [ class "btn-row", style "justify-content" "flex-end" ]
                     [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
-                    , button [ class "btn btn-danger", onClick yes ] [ text "Release" ]
+                    , button
+                        [ class
+                            (if yesLabel == "Release" then
+                                "btn btn-danger"
+
+                             else
+                                "btn btn-primary"
+                            )
+                        , onClick yes
+                        ]
+                        [ text yesLabel ]
                     ]
                 )
 
@@ -1890,10 +1935,37 @@ viewModal model =
                 )
                 (button [ class "btn btn-primary", onClick CloseModal ] [ text "Back to the board" ])
 
+        Standings ->
+            case model.game of
+                Just game ->
+                    shell model (standingsBody game) (button [ class "btn btn-primary", onClick CloseModal ] [ text "Back to the board" ])
+
+                Nothing ->
+                    text ""
+
+        Meters ->
+            case model.game of
+                Just game ->
+                    shell model (metersBody game) (button [ class "btn btn-primary", onClick CloseModal ] [ text "Back to the board" ])
+
+                Nothing ->
+                    text ""
+
+        Moves ->
+            case model.game of
+                Just game ->
+                    shell model (movesBody model game) (button [ class "btn btn-primary", onClick CloseModal ] [ text "Back to the board" ])
+
+                Nothing ->
+                    text ""
+
+        Recap ->
+            shell model (recapBody model) (button [ class "btn btn-primary", onClick CloseModal ] [ text "Continue" ])
+
         Drawer "log" ->
             case model.game of
                 Just game ->
-                    shell model (drawerLog game) (text "")
+                    shell model (drawerLog model game) (text "")
 
                 Nothing ->
                     text ""
@@ -1955,7 +2027,7 @@ openSnap : Modal -> String
 openSnap modal =
     case modal of
         AttackModal _ ->
-            "full"
+            "fit"
 
         ReorgModal _ _ ->
             "full"
@@ -1970,6 +2042,18 @@ openSnap modal =
             "fit"
 
         CardSheet _ ->
+            "fit"
+
+        Standings ->
+            "fit"
+
+        Meters ->
+            "fit"
+
+        Moves ->
+            "fit"
+
+        Recap ->
             "fit"
 
         _ ->
@@ -2017,19 +2101,20 @@ rulesBody =
             , h3 [] [ text "A turn" ]
             , ul []
                 [ li [] [ text "At the start of your turn you collect income: the patron's income, plus each group's, paid onto that group. Compute-producing groups add Compute." ]
-                , li [] [ text "You have two actions, shown in the action bar as Actions left. Only one of them may be an attack, whether the roll succeeds or fails. The bar marks Attack used: yes after that. The other action can be Lean, Reorganize, Release, a weights leak, or Pass." ]
+                , li [] [ text "You have two actions, shown in the header as Actions. Only one of them may be an attack — Take control, Neutralize, or Destroy — whether the roll succeeds or fails. The header pip turns red once that attack is used. The other action can be Lean, Reorganize, Release, or a weights leak." ]
+                , li [] [ text "Tap a card, then tap the action. An attack asks you to pick a spend from $0 to $4 before you roll. Each dollar adds 2 strength, up to $4. The highlighted spend is the best odds you can afford." ]
                 , li [] [ text "Lean spends 2 money to bank +2 strength on your next attack against that group, up to +6. Banked lean is printed on the group. After you attack, you can still lean for next turn." ]
                 , li [] [ text reorgExplain ]
-                , li [] [ text "Release returns a group and its branch to the open field. Leak Weights is Open Wave only: spend 4, and succeed on 10 or less if you hold a lab. Pass ends the turn." ]
+                , li [] [ text "Release returns a group and its branch to the open field. Leak the weights is Open Wave only: spend 4, and succeed on 10 or less if you hold a lab. End turn finishes your turn. If actions are left, it asks you to confirm." ]
                 , li [] [ text "A new headline is drawn at the start of each quarter." ]
                 ]
             ]
         , div []
             [ h3 [] [ text "Attacks" ]
             , ul []
-                [ li [] [ Html.strong [] [ text "Control" ], text " takes a group and its branch. You need a free socket. You only get one attack each turn, so a second Control, Neutralize, or Destroy waits until next turn." ]
-                , li [] [ Html.strong [] [ text "Neutralize" ], text " breaks a group free of its owner. " ]
-                , li [] [ Html.strong [] [ text "Destroy" ], text " removes a group from the game." ]
+                [ li [] [ Html.strong [] [ text "Take control" ], text " takes a group and its branch. You need a free socket. It uses your attack." ]
+                , li [] [ Html.strong [] [ text "Neutralize" ], text " breaks a group free of its owner. It uses your attack." ]
+                , li [] [ Html.strong [] [ text "Destroy" ], text " removes a group from the game. It uses your attack. A second attack waits until next turn." ]
                 , li [] [ text "Roll 2d6. You succeed if the total is less than or equal to your attack strength, and is not a 12. A 12 always fails." ]
                 , li [] [ text "Strength = attacker power + transfer from the parent + 2 per dollar spent (up to 4 dollars) + any lean you have banked on that group + alignment and special modifiers − resistance − the defender's parent − the defender's spend − 2, because every attack is contested." ]
                 ]
@@ -2041,8 +2126,8 @@ rulesBody =
             , h3 [] [ text "The rest" ]
             , ul []
                 [ li [] [ text "Helios labs and chipmakers pay Compute on the last privileged turn. Their money, and every other group's income, still waits the full four." ]
-                , li [] [ text "Hold a cult to Recruit, the Listening Service to Remove a founder, the chip kingpin to Ration, or the wildcard to Swing. A plant delay skips anyone who already holds power. Parody, not fact." ]
-                , li [] [ text "On a phone, use the tabs to move between your tree, rivals, the open field, the log, and these rules. The action bar stays on screen." ]
+                , li [] [ text "Hold a cult to recruit, the Listening Service to push out a founder, the chip kingpin to ration compute, or the wildcard to take the swing. A plant delay skips anyone who already holds power. Parody, not fact." ]
+                , li [] [ text "On a phone, use the tabs to move between your tree, rivals, the open field, the log, and these rules. Actions live on the card you tap. Moves, in the header, lists what you can do and what you have not unlocked." ]
                 , li [] [ text "The same seed always deals the same game. Add ?autoplay=1&seed=N to watch every seat, or call window.game from the console." ]
                 , li [] [ text disclaimer ]
                 ]
@@ -2173,73 +2258,99 @@ attackBody model form spinning done =
                             }
 
                         else
-                            { body =
-                                div []
-                                [ h2 [] [ text (kindLabel form.kind) ]
-                                , h2 [] [ text card.name ]
-                                , p [ class "lead" ] [ text (card.flavor ++ (if card.parody then " (A parody card. Satire, not a factual claim.)" else "")) ]
-                                , div [ class "attacker-picks" ]
-                                    (List.map
-                                        (\atk ->
-                                            let
-                                                label =
-                                                    case atk of
-                                                        PatronAtk ->
-                                                            (factionOf you).name ++ " (patron)"
-
-                                                        GroupAtk iid ->
-                                                            case Engine.findInstance game iid of
-                                                                Just g ->
-                                                                    (Engine.cardOf g).name
-
-                                                                Nothing ->
-                                                                    "Group"
-                                            in
-                                            button [ classList [ ( "on", atk == form.attacker ) ], onClick (SetAttacker atk) ] [ text label ]
-                                        )
-                                        usable
-                                    )
-                                , if form.kind == Control then
-                                    div [ class "parent-picks" ]
-                                        (List.map
-                                            (\parent ->
-                                                button [ classList [ ( "on", parent == form.parent ) ], onClick (SetParent parent) ] [ text (parentLabel you parent) ]
+                            let
+                                bestSpend =
+                                    List.range 0 (min money Engine.maxAttackSpend)
+                                        |> List.sortBy
+                                            (\s ->
+                                                let
+                                                    p =
+                                                        (Engine.attackStrength game you.id form.attacker target.instanceId form.kind s 0).prob
+                                                in
+                                                ( negate p, s )
                                             )
-                                            parents
-                                          )
+                                        |> List.head
+                                        |> Maybe.withDefault 0
+                            in
+                            { body =
+                                div [ class "attack-confirm" ]
+                                    [ h2 [] [ text (kindLabel form.kind ++ " " ++ card.name) ]
+                                    , p [ class "lead" ]
+                                        [ text
+                                            ("$"
+                                                ++ String.fromInt spend
+                                                ++ " · "
+                                                ++ String.fromInt (round (br.prob * 100))
+                                                ++ "% · uses your attack. Need "
+                                                ++ String.fromInt (max 2 br.strength)
+                                                ++ " or less."
+                                            )
+                                        ]
+                                    , div [ class "spend-seg" ]
+                                        (List.map
+                                            (\s ->
+                                                let
+                                                    pct =
+                                                        (Engine.attackStrength game you.id form.attacker target.instanceId form.kind s 0).prob
 
-                                  else
-                                    text ""
-                                , div [ class "formula" ]
-                                    [ div [] [ text "Attacker power ", Html.strong [] [ text (String.fromInt br.atkP) ] ]
-                                    , div [] [ text "Transfer from parent ", Html.strong [] [ text (signed br.transfer) ] ]
-                                    , div [] [ text ("Money spent ($" ++ String.fromInt br.spend ++ ") "), Html.strong [] [ text (signed (br.spend * Engine.spendWeight)) ] ]
-                                    , div [] [ text "Lean banked ", Html.strong [] [ text (signed br.lean) ] ]
-                                    , div [] [ text "Alignment ", Html.strong [] [ text (signed br.aMod) ] ]
-                                    , div [] [ text "Special ", Html.strong [] [ text (signed br.special) ] ]
-                                    , div [] [ text "Resistance ", Html.strong [] [ text ("−" ++ String.fromInt br.res) ] ]
-                                    , div [] [ text "Defender's parent ", Html.strong [] [ text ("−" ++ String.fromInt br.defT) ] ]
-                                    , div [] [ text "Contested ", Html.strong [] [ text "−2" ] ]
-                                    , div [] [ text ("Need " ++ String.fromInt (max 2 br.strength) ++ " or less on 2d6 · a 12 always fails") ]
+                                                    afford =
+                                                        s <= money
+                                                in
+                                                button
+                                                    [ class "spend-opt"
+                                                    , classList [ ( "on", s == spend ), ( "best", s == bestSpend && afford ) ]
+                                                    , disabled (not afford)
+                                                    , onClick (SetSpend (String.fromInt s))
+                                                    ]
+                                                    [ span [ class "spend-amt" ] [ text ("$" ++ String.fromInt s) ]
+                                                    , span [ class "spend-pct" ]
+                                                        [ text
+                                                            (if afford then
+                                                                String.fromInt (round (pct * 100)) ++ "%"
+
+                                                             else
+                                                                "short"
+                                                            )
+                                                        ]
+                                                    ]
+                                            )
+                                            (List.range 0 Engine.maxAttackSpend)
+                                        )
+                                    , div [ class "attacker-picks" ]
+                                        (List.map
+                                            (\atk ->
+                                                let
+                                                    label =
+                                                        case atk of
+                                                            PatronAtk ->
+                                                                (factionOf you).name
+
+                                                            GroupAtk iid ->
+                                                                case Engine.findInstance game iid of
+                                                                    Just g ->
+                                                                        (Engine.cardOf g).name
+
+                                                                    Nothing ->
+                                                                        "Group"
+                                                in
+                                                button [ class "atk-opt", classList [ ( "on", atk == form.attacker ) ], onClick (SetAttacker atk) ] [ text label ]
+                                            )
+                                            usable
+                                        )
+                                    , if form.kind == Control && List.length parents > 1 then
+                                        div [ class "parent-picks" ]
+                                            (List.map
+                                                (\parent ->
+                                                    button [ class "atk-opt", classList [ ( "on", parent == form.parent ) ], onClick (SetParent parent) ] [ text (parentLabel you parent) ]
+                                                )
+                                                parents
+                                            )
+
+                                      else
+                                        text ""
                                     ]
-                                , div [ class "spend-row" ]
-                                    [ label [ class "field", style "flex" "1" ]
-                                        [ text "Spend"
-                                        , input [ type_ "range", A.min "0", A.max (String.fromInt (min money Engine.maxAttackSpend)), value (String.fromInt spend), onInput SetSpend ] []
-                                        ]
-                                    , div [ class "odds" ]
-                                        [ text (String.fromInt (round (br.prob * 100)) ++ "%")
-                                        , span [] [ text ("$ " ++ String.fromInt spend ++ " of " ++ String.fromInt money) ]
-                                        ]
-                                    ]
-                                , oddsLadder game you form.attacker target form.kind (min money Engine.maxAttackSpend) spend
-                                , p [ class "defender-note" ] [ text "The defender may spend money after you confirm, which can lower these odds. A single attack can spend at most 4 dollars, and each dollar adds 2 strength." ]
-                                ]
                             , foot =
-                                div [ class "btn-row", style "justify-content" "flex-end" ]
-                                    [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
-                                    , button [ class "btn btn-primary", onClick Launch ] [ text "Roll 2d6" ]
-                                    ]
+                                button [ class "btn btn-primary", onClick Launch ] [ text ("Roll · $" ++ String.fromInt spend) ]
                             }
 
 
@@ -2426,6 +2537,7 @@ cardParts model id =
                                 , h2 [] [ text card.name ]
                                 , p [ class "lead" ] [ text (card.title ++ " · " ++ owner) ]
                                 , specialTag card.special
+                                , abilityBlurb card (g.ownerId == Just you.id)
                                 ]
                         , foot = actStack game you g
                         }
@@ -2449,7 +2561,7 @@ actStack game you g =
 
         primary =
             relevant
-                |> List.filter .enabled
+                |> List.filter (\o -> o.enabled && o.label /= "Release")
                 |> List.head
                 |> Maybe.map .label
     in
@@ -2466,7 +2578,11 @@ actButton : Offer -> Bool -> Html Msg
 actButton offer primary =
     button
         [ class "act"
-        , classList [ ( "primary", primary && offer.enabled ), ( "off", not offer.enabled ) ]
+        , classList
+            [ ( "primary", primary && offer.enabled && offer.label /= "Release" )
+            , ( "danger", offer.label == "Release" && offer.enabled )
+            , ( "off", not offer.enabled )
+            ]
         , disabled (not offer.enabled)
         , A.title offer.tip
         , onClick offer.act
@@ -2485,18 +2601,6 @@ actVerb label =
         "Lean" ->
             "Lean on it"
 
-        "Remove founder" ->
-            "Cut founder"
-
-        "Recruit" ->
-            "Recruit"
-
-        "Ration" ->
-            "Ration compute"
-
-        "Swing" ->
-            "Take the swing"
-
         _ ->
             label
 
@@ -2509,13 +2613,13 @@ actLine offer =
     else
         case offer.label of
             "Control" ->
-                chance offer ++ " · uses your attack"
+                offer.reason ++ " · uses your attack"
 
             "Neutralize" ->
-                chance offer ++ " · uses your attack"
+                offer.reason ++ " · uses your attack"
 
             "Destroy" ->
-                chance offer
+                offer.reason ++ " · uses your attack"
 
             "Lean" ->
                 "$2 for +2"
@@ -2526,16 +2630,19 @@ actLine offer =
             "Release" ->
                 "Send it back to the open field"
 
-            "Recruit" ->
-                "Cult rite"
+            "Push out a founder" ->
+                "Spend $3. A rival's founder leaves."
 
-            "Remove founder" ->
-                "Cut founder ($3)"
+            "Recruit worriers" ->
+                "Cult rite. A rival lab loses its nerve."
 
-            "Ration" ->
+            "Recruit trainers" ->
+                "Cult rite. +1 compute, a rival lab loses 1 power."
+
+            "Ration compute" ->
                 "Move 1 compute your way"
 
-            "Swing" ->
+            "Take the swing" ->
                 "A coin-flip quarter"
 
             _ ->
@@ -2565,7 +2672,7 @@ endTurn model game =
         button [ class "end-turn", onClick ShowVictory ] [ text "See the outcome" ]
 
     else if yours then
-        button [ class "end-turn", onClick PassTurn ]
+        button [ class "end-turn", classList [ ( "ready", game.actionsLeft == 0 ) ], onClick AskEnd ]
             [ text
                 ("End turn · "
                     ++ String.fromInt game.actionsLeft
@@ -2578,8 +2685,422 @@ endTurn model game =
                 )
             ]
 
+    else if model.busy && not model.driveAll && model.modal == NoModal then
+        button [ class "end-turn", onClick SpeedUp ] [ text "Skip" ]
+
     else
         text ""
+
+
+deltaText : Int -> String
+deltaText n =
+    if n > 0 then
+        "+" ++ String.fromInt n
+
+    else
+        String.fromInt n
+
+
+deltaClass : Int -> String
+deltaClass n =
+    if n > 0 then
+        "delta up"
+
+    else if n < 0 then
+        "delta down"
+
+    else
+        "delta flat"
+
+
+scoreStrip : Game -> Html Msg
+scoreStrip game =
+    let
+        rows =
+            List.map (\p -> ( Engine.settledCount p, p )) game.players
+
+        lead =
+            List.map Tuple.first rows |> List.maximum |> Maybe.withDefault 0
+    in
+    div [ class "score-strip" ]
+        (List.map
+            (\( n, p ) ->
+                let
+                    f =
+                        factionOf p
+
+                    you =
+                        p.id == 0
+
+                    prog =
+                        Engine.goalProgress game p
+
+                    width =
+                        String.fromFloat (toFloat n / toFloat Engine.publicGoal * 100) ++ "%"
+                in
+                button [ class "score-cell", classList [ ( "you", you ), ( "lead", n == lead && n > 0 ) ], onClick OpenStandings ]
+                    [ span [ class "score-name" ] [ text f.short ]
+                    , span [ class "score-bar" ] [ Html.i [ style "width" width ] [] ]
+                    , span [ class "score-n" ] [ text ("Public " ++ String.fromInt n ++ "/6") ]
+                    , span [ class "score-secret" ]
+                        [ text
+                            ((if you then
+                                "Secret " ++ String.fromInt (round (prog.secretRatio * 100)) ++ "%"
+
+                              else
+                                ""
+                             )
+                                ++ (if n == lead && n > 0 then
+                                        (if you then " · " else "") ++ "Lead"
+
+                                    else
+                                        ""
+                                   )
+                            )
+                        ]
+                    ]
+            )
+            rows
+        )
+
+
+standingsBody : Game -> Html Msg
+standingsBody game =
+    let
+        lead =
+            game.players |> List.map Engine.settledCount |> List.maximum |> Maybe.withDefault 0
+    in
+    div [ class "standings" ]
+        [ h2 [] [ text "Standings" ]
+        , p [ class "lead" ] [ text "Public win is 6 settled groups. Your secret percentage is only yours." ]
+        , div [ class "stand-list" ]
+            (List.map
+                (\player ->
+                    let
+                        f =
+                            factionOf player
+
+                        n =
+                            Engine.settledCount player
+
+                        prog =
+                            Engine.goalProgress game player
+                    in
+                    div [ class "stand-row", classList [ ( "lead", n == lead && n > 0 ) ] ]
+                        [ div [ class "stand-top" ]
+                            [ Html.strong [] [ text (f.name ++ (if n == lead && n > 0 then " · Lead" else "")) ]
+                            , span [] [ text (String.fromInt n ++ "/6") ]
+                            ]
+                        , div [ class "score-bar" ] [ Html.i [ style "width" (String.fromFloat (toFloat n / 6 * 100) ++ "%") ] [] ]
+                        , p []
+                            [ text
+                                ("Money " ++ String.fromInt (Engine.totalMoney player) ++ " · Compute " ++ String.fromInt player.compute ++ " · Groups " ++ String.fromInt (Engine.groupCount player))
+                            ]
+                        , if player.id == 0 then
+                            p [] [ text ("Secret goal " ++ String.fromInt (round (prog.secretRatio * 100)) ++ "%. " ++ prog.secretText) ]
+
+                          else
+                            text ""
+                        ]
+                )
+                game.players
+            )
+        ]
+
+
+metersBody : Game -> Html Msg
+metersBody game =
+    let
+        you =
+            Engine.getPlayer game 0
+
+        cast =
+            Engine.forecast game you
+
+        lines title xs =
+            div [ class "meter-block" ]
+                [ h3 [] [ text title ]
+                , if List.isEmpty xs then
+                    p [] [ text "Nothing changes." ]
+
+                  else
+                    ul [ class "meter-lines" ]
+                        (List.map
+                            (\line ->
+                                li [ class (deltaClass line.amount) ]
+                                    [ span [] [ text line.label ]
+                                    , span [] [ text (if line.amount == 0 then "0" else deltaText line.amount) ]
+                                    ]
+                            )
+                            xs
+                        )
+                ]
+    in
+    div [ class "meters-sheet" ]
+        [ h2 [] [ text "Resources" ]
+        , p [ class "lead" ]
+            [ text
+                ("Money "
+                    ++ String.fromInt cast.moneyNow
+                    ++ " ("
+                    ++ deltaText cast.moneyDelta
+                    ++ " next turn). Compute "
+                    ++ String.fromInt cast.computeNow
+                    ++ " ("
+                    ++ deltaText cast.computeDelta
+                    ++ " next turn)."
+                )
+            ]
+        , lines "Money" cast.moneyLines
+        , lines "Compute" cast.computeLines
+        , div [ class "meter-block" ]
+            [ h3 [] [ text "Pressure" ]
+            , if List.isEmpty cast.pressures then
+                p [] [ text "No export controls, shortage, safety letter, or visa freeze." ]
+
+              else
+                ul [ class "meter-lines" ] (List.map (\t -> li [] [ text t ]) cast.pressures)
+            ]
+        ]
+
+
+movesBody : Model -> Game -> Html Msg
+movesBody model game =
+    let
+        you =
+            Engine.getPlayer game 0
+
+        yourTurn =
+            not game.gameOver && (Engine.current game).id == 0 && not model.busy && not model.driveAll
+
+        ranks =
+            Engine.rankTargets game you |> List.take 3
+
+        held id =
+            List.any (\g -> g.cardId == id) you.grove
+
+        locked =
+            [ ( "Push out a founder", "listening-service", "Hold The Listening Service and spend $3." )
+            , ( "Recruit worriers", "care-forum", "Hold The Care Forum and spend $1." )
+            , ( "Recruit trainers", "accel-institute", "Hold the Acceleration Institute and spend $1." )
+            , ( "Ration compute", "green-jacket", "Hold Green Jacket." )
+            , ( "Take the swing", "fast-follow", "Hold The Fast Follow." )
+            , ( "Leak the weights", "open-wave-self", "Play as The Open Wave, hold a lab, and spend $4." )
+            ]
+    in
+    div [ class "moves" ]
+        [ h2 [] [ text "Moves" ]
+        , if not yourTurn then
+            p [ class "lead" ] [ text "Wait for your turn. Locked moves stay listed so you can see how to unlock them." ]
+
+          else
+            text ""
+        , h3 [] [ text "Best hits" ]
+        , if List.isEmpty ranks then
+            p [] [ text "No legal attack this turn." ]
+
+          else
+            div [ class "act-stack" ]
+                (List.map
+                    (\r ->
+                        button [ class "act", onClick (Select r.groupId) ]
+                            [ span [ class "act-verb" ] [ text (kindWord r.kind ++ " " ++ r.name) ]
+                            , span [ class "act-line" ] [ text (r.ownerName ++ " — " ++ r.why) ]
+                            ]
+                    )
+                    ranks
+                )
+        , h3 [] [ text "From groups you hold" ]
+        , let
+            offers =
+                List.filter (\o -> o.band == "special" || o.label == "Leak Weights") (actionOffers game you yourTurn Nothing)
+          in
+          if List.isEmpty (List.filter (\o -> o.band == "special") (invokeOffers game you yourTurn)) && you.factionId /= "open-wave" then
+            p [] [ text "None of your groups grant a special move." ]
+
+          else
+            div [ class "act-stack" ]
+                (List.map
+                    (\o -> actButton o (o.enabled && not (List.any .enabled (List.filter (\x -> x.enabled) offers) && False)))
+                    (List.filter (\o -> o.band == "special") (invokeOffers game you yourTurn)
+                        ++ (if you.factionId == "open-wave" then
+                                [ leakOffer game you yourTurn ]
+
+                            else
+                                []
+                           )
+                    )
+                )
+        , h3 [] [ text "Locked" ]
+        , ul [ class "locked-moves" ]
+            (List.filterMap
+                (\( title, id, how ) ->
+                    let
+                        have =
+                            if id == "open-wave-self" then
+                                you.factionId == "open-wave"
+
+                            else
+                                held id
+                    in
+                    if have then
+                        Nothing
+
+                    else
+                        Just (li [] [ Html.strong [] [ text title ], text (" — " ++ how) ])
+                )
+                locked
+            )
+        ]
+
+
+recapBody : Model -> Html Msg
+recapBody model =
+    case model.game of
+        Nothing ->
+            div [ class "recap" ] [ h2 [] [ text "Rivals' turn" ] ]
+
+        Just game ->
+            let
+                yours =
+                    List.map (\g -> (Engine.cardOf g).name) (Engine.getPlayer game 0).grove
+
+                hit line =
+                    String.contains "You " line || String.contains " you" line || String.contains "your " line || List.any (\name -> String.contains name line) yours
+
+                ( hits, rest ) =
+                    List.partition hit model.recapLines
+
+                blocks =
+                    List.filter (\rival -> rival.id /= 0) game.players
+                        |> List.map
+                            (\rival ->
+                                ( rival
+                                , List.filter (\line -> String.startsWith rival.name line) rest
+                                )
+                            )
+
+                other =
+                    List.filter (\line -> not (List.any (\rival -> String.startsWith rival.name line) game.players)) rest
+            in
+            div [ class "recap" ]
+                [ h2 [] [ text "Rivals' turn" ]
+                , if List.isEmpty model.recapLines then
+                    p [ class "lead" ] [ text "The rivals passed quietly." ]
+
+                  else
+                    div []
+                        [ if List.isEmpty hits then
+                            text ""
+
+                          else
+                            div []
+                                [ h3 [] [ text "What hit you" ]
+                                , ul [ class "recap-list" ] (List.map (\line -> li [ class "hit-you" ] [ text (plainLine line) ]) hits)
+                                ]
+                        , div []
+                            (List.map
+                                (\( rival, rows ) ->
+                                    if List.isEmpty rows then
+                                        text ""
+
+                                    else
+                                        div [ class "recap-block" ]
+                                            [ ul [ class "recap-list" ] (List.map (\line -> li [] [ text (plainLine line) ]) rows)
+                                            , p [ class "recap-now" ]
+                                                [ text
+                                                    (rival.name
+                                                        ++ " now "
+                                                        ++ String.fromInt (Engine.settledCount rival)
+                                                        ++ "/6 settled groups, money "
+                                                        ++ String.fromInt (Engine.totalMoney rival)
+                                                        ++ ", compute "
+                                                        ++ String.fromInt rival.compute
+                                                        ++ "."
+                                                    )
+                                                ]
+                                            ]
+                                )
+                                blocks
+                            )
+                        , if List.isEmpty other then
+                            text ""
+
+                          else
+                            ul [ class "recap-list" ] (List.map (\line -> li [] [ text (plainLine line) ]) other)
+                        ]
+                ]
+
+
+plainLine : String -> String
+plainLine line =
+    let
+        base =
+            String.replace "(need " "(needed " line
+    in
+    if String.contains "SUCCESS" base then
+        base
+            |> String.replace " controls " " took "
+            |> String.replace ". SUCCESS." "."
+
+    else if String.contains "Fails." base then
+        base
+            |> String.replace " controls " " missed "
+            |> String.replace ". Fails." "."
+
+    else
+        base
+
+
+kindWord : Kind -> String
+kindWord kind =
+    case kind of
+        Control ->
+            "Take control of"
+
+        Neutralize ->
+            "Neutralize"
+
+        Destroy ->
+            "Destroy"
+
+
+bestHitLine : Game -> Player -> Player -> Html Msg
+bestHitLine game you rival =
+    case List.filter (\r -> r.ownerName == rival.name) (Engine.rankTargets game you) of
+        r :: _ ->
+            p [ class "best-hit" ] [ text (kindWord r.kind ++ " " ++ r.name ++ " — " ++ r.why) ]
+
+        [] ->
+            text ""
+
+
+abilityBlurb : Card -> Bool -> Html Msg
+abilityBlurb card owned =
+    case card.special of
+        Just "remove-founder" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can push a founder out of a rival's chair for $3.") ]
+
+        Just "doomer-cult" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can recruit worriers for $1. A rival lab loses its nerve.") ]
+
+        Just "accel-cult" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can recruit trainers for $1 and gain 1 compute.") ]
+
+        Just "ration-compute" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can ration 1 compute off the leader. While it is settled, rivals' chips yield 1 less.") ]
+
+        Just "wildcard-swing" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "you can take the swing: a coin-flip quarter.") ]
+
+        Just "founder-hunter" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "attacks you lead with it hit founders harder.") ]
+
+        Just "controller-power-income" ->
+            p [ class "ability-note" ] [ text ((if owned then "You hold this. " else "If you take it, ") ++ "your other power groups pay $1 more each turn.") ]
+
+        _ ->
+            text ""
 
 
 youAttacked : Game -> Bool
@@ -2964,7 +3485,7 @@ specialTag special =
             span [ class "special-tag", A.title "Recruit: spend 1. Gain 1 compute and a rival lab loses 1 power. Parody, not fact." ] [ text "Cult" ]
 
         Just "remove-founder" ->
-            span [ class "special-tag", A.title "Remove founder: spend 3 to cut a founder from their patron. A briefing leaks. Parody, not fact." ] [ text "Agency" ]
+            span [ class "special-tag", A.title "Push out a founder: spend 3 to make a rival's founder leave. A briefing leaks. Parody, not fact." ] [ text "Agency" ]
 
         Just "ration-compute" ->
             span [ class "special-tag", A.title "Ration: move 1 compute toward you. Rivals' chips also yield 1 less while you hold this. Parody, not fact." ] [ text "Ration" ]
