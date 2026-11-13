@@ -191,7 +191,18 @@ updateUi msg app =
             emit { app | ui = maybeEvent { ui | screen = View.Play } } Cmd.none
 
         SetTab tab ->
-            emit { app | ui = { ui | tab = tab, modal = if ui.modal == View.Help then View.NoModal else ui.modal } } Cmd.none
+            case tab of
+                View.TabLog ->
+                    emit { app | ui = { ui | modal = View.Drawer "log" } } Cmd.none
+
+                View.TabRules ->
+                    emit { app | ui = { ui | modal = View.Drawer "rules" } } Cmd.none
+
+                _ ->
+                    emit { app | ui = { ui | tab = tab, modal = if ui.modal == View.Help then View.NoModal else ui.modal } } Cmd.none
+
+        OpenGoal ->
+            emit { app | ui = { ui | modal = View.Drawer "goal" } } Cmd.none
 
         Select id ->
             emit { app | ui = { ui | selectedId = Just id } } Cmd.none

@@ -37,6 +37,7 @@ type Modal
     | ReorgModal String Parent
     | Confirm String String Msg
     | CardSheet String
+    | Drawer String
 
 
 type alias AttackForm =
@@ -101,6 +102,7 @@ type Msg
     | ShowHelp
     | ShowEvent
     | DismissHint
+    | OpenGoal
     | SpeedUp
     | Backdrop
 
@@ -292,6 +294,7 @@ viewDesktop model game =
         , div [ class "board" ]
             [ div [ class "col" ]
                 [ youCard you game False
+                , raceList game
                 , flagsHtml game
                 , div [ class "panel-head" ] [ text "Turn log" ]
                 , div [ class "log" ] (logEntries game)
@@ -335,6 +338,7 @@ viewPhone model game =
                 TabTree ->
                     div []
                         [ youCard you game True
+                        , raceList game
                         , viewBanner viewer
                         , div [ class "panel-head" ]
                             [ span [] [ text (if viewer.id == 0 then "Your structure" else (factionOf viewer).short ++ " · structure") ]
@@ -448,6 +452,7 @@ youCard you game compact =
     in
     div [ class "you-card", classList [ ( "you-card-compact", compact ) ], style "--fc" f.color ]
         [ div [ class "stripe" ] []
+        , button [ class "goal-open", onClick OpenGoal, A.title "Open your goal" ] [ text "Goal" ]
         , if compact then
             div [ class "you-compact-head" ]
                 [ h2 [] [ text f.name ]
@@ -532,57 +537,43 @@ actionBar model game =
 
         offers =
             actionOffers game you yourTurn selected
-
-        attacks =
-            List.filter (\o -> o.band == "attack") offers
-
-        others =
-            List.filter (\o -> o.band /= "attack") offers
     in
-    div [ class "action-bar", class "dock" ]
-        [ div [ class "action-status" ]
-            [ span []
+    div [ class "action-bar strip dock" ]
+        [ div [ class "strip-status" ]
+            [ span [ class "strip-count" ]
                 [ text
                     (if yourTurn then
-                        "Actions left: " ++ String.fromInt game.actionsLeft ++ "/2"
+                        String.fromInt game.actionsLeft ++ "/2"
 
                      else
-                        "Actions left: —"
+                        "—"
                     )
                 ]
-            , span []
+            , span [ class "strip-k" ] [ text "acts" ]
+            , span
+                [ classList [ ( "strip-atk", True ), ( "used", yourTurn && you.attackedThisTurn ) ]
+                , A.title
+                    (offers
+                        |> List.filter (\o -> o.band == "attack")
+                        |> List.head
+                        |> Maybe.map .reason
+                        |> Maybe.withDefault ""
+                    )
+                ]
                 [ text
                     (if not yourTurn then
-                        "Attack used: —"
+                        "Wait"
 
                      else if you.attackedThisTurn then
-                        "Attack used: yes"
+                        "Attack used"
 
                      else
-                        "Attack used: no"
+                        "Attack free"
                     )
                 ]
-            , span [ class "action-money" ] [ text ("$ " ++ String.fromInt (Engine.totalMoney you)) ]
+            , span [ class "strip-money" ] [ text ("$" ++ String.fromInt (Engine.totalMoney you)) ]
             ]
-        , leanNudge you yourTurn game
-        , div [ class "action-catalog" ]
-            [ div [ class "action-band" ]
-                [ div [ class "action-band-label" ] [ text "Attack — 1 per turn" ]
-                , div [ class "action-rows" ] (List.map offerRow attacks)
-                ]
-            , div [ class "action-band" ]
-                [ div [ class "action-rows" ] (List.map offerRow others)
-                ]
-            ]
-        , selectedActions game you selected offers
-        , if game.gameOver then
-            button [ class "btn btn-primary", onClick ShowVictory ] [ text "See the outcome" ]
-
-          else if model.busy then
-            button [ class "btn btn-sm btn-ghost", onClick SpeedUp ] [ text "Speed up" ]
-
-          else
-            text ""
+        , div [ class "strip-chips" ] (stripChips game you yourTurn selected offers model)
         ]
 
 
@@ -651,18 +642,73 @@ type alias Offer =
     }
 
 
-offerRow : Offer -> Html Msg
-offerRow offer =
+stripChips : Game -> Player -> Bool -> Maybe Group -> List Offer -> Model -> List (Html Msg)
+stripChips game you yourTurn selected offers model =
+    let
+        contextual =
+            List.filter (\o -> o.band == "attack" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release") offers
+
+        shown =
+            List.filter .enabled contextual
+
+        hint =
+            if not yourTurn then
+                if game.gameOver then
+                    "Window closed"
+
+                else
+                    "Waiting on a rival"
+
+            else if selected == Nothing then
+                if you.attackedThisTurn && Engine.totalMoney you >= 2 then
+                    "Lean next"
+
+                else
+                    "Select a group"
+
+            else if you.attackedThisTurn && Engine.totalMoney you >= 2 then
+                "Lean next"
+
+            else
+                ""
+
+        extras =
+            List.filter (\o -> o.label == "Pass" || (o.label == "Leak Weights" && you.factionId == "open-wave")) offers
+    in
+    (if hint == "" then
+        []
+
+     else
+        [ span [ class "strip-hint", A.title hint ] [ text hint ] ]
+    )
+        ++ List.map chip (shown ++ List.filter .enabled extras)
+        ++ (if game.gameOver then
+                [ button [ class "chip primary", onClick ShowVictory ] [ text "Outcome" ] ]
+
+            else if model.busy then
+                [ button [ class "chip", onClick SpeedUp ] [ text "Faster" ] ]
+
+            else
+                []
+           )
+        ++ [ button [ class "chip ghost", onClick OpenGoal, A.title "Your goal and the compute race" ] [ text "Goal" ] ]
+
+
+chip : Offer -> Html Msg
+chip offer =
     button
-        [ class "offer"
-        , classList [ ( "off", not offer.enabled ), ( "offer-attack", offer.band == "attack" ) ]
+        [ class "chip"
+        , classList [ ( "primary", offer.enabled && offer.band == "attack" ), ( "off", not offer.enabled ) ]
         , disabled (not offer.enabled)
-        , A.title (if offer.tip == "" then offer.reason else offer.tip)
+        , A.title (if offer.tip == "" then offer.reason else offer.reason ++ " — " ++ offer.tip)
         , onClick offer.act
         ]
-        [ span [ class "offer-name" ] [ text offer.label ]
-        , span [ class "offer-why" ] [ text offer.reason ]
-        ]
+        [ text offer.label ]
+
+
+offerRow : Offer -> Html Msg
+offerRow offer =
+    chip offer
 
 
 actionOffers : Game -> Player -> Bool -> Maybe Group -> List Offer
@@ -850,10 +896,10 @@ leakOffer game you yourTurn =
 passOffer : Game -> Bool -> Offer
 passOffer game yourTurn =
     if yourTurn then
-        { label = "Pass / End turn", band = "turn", enabled = True, reason = "Ends the turn", act = PassTurn, tip = "Spend the rest of the turn doing nothing." }
+        { label = "Pass", band = "turn", enabled = True, reason = "Ends the turn", act = PassTurn, tip = "Pass ends the turn." }
 
     else
-        { label = "Pass / End turn", band = "turn", enabled = False, reason = if game.gameOver then "Window closed" else "Waiting on a rival", act = NoOp, tip = "" }
+        { label = "Pass", band = "turn", enabled = False, reason = if game.gameOver then "Window closed" else "Waiting on a rival", act = NoOp, tip = "Pass ends the turn." }
 
 
 firstAttacker : Game -> Player -> Group -> Kind -> Maybe Attacker
@@ -1026,6 +1072,7 @@ rivalCards model game =
                         [ h3 [ style "color" pf.color ] [ text pf.short ]
                         , span [ class "dots" ] [ text p.name ]
                         ]
+                    , threatMeter game p
                     , div [ class "rival-meters" ]
                         [ span [ class "m" ] [ text ("$ " ++ String.fromInt (Engine.totalMoney p)) ]
                         , span [ class "c" ] [ text ("C " ++ String.fromInt p.compute) ]
@@ -1587,6 +1634,77 @@ drawNodes game player interactive compact selected (Placed node) =
 -- Modals
 
 
+raceList : Game -> Html Msg
+raceList game =
+    div [ class "race" ]
+        (div [ class "race-k" ] [ text "Public win · 6 settled groups" ]
+            :: List.map
+                (\p ->
+                    let
+                        f =
+                            factionOf p
+
+                        prog =
+                            Engine.goalProgress game p
+
+                        pct =
+                            String.fromFloat (prog.publicRatio * 100) ++ "%"
+                    in
+                    div [ class "race-row", classList [ ( "you", p.id == 0 ) ] ]
+                        [ span [ class "race-name", style "color" f.color ] [ text f.short ]
+                        , span [ class "race-track" ] [ Html.i [ style "width" pct, style "background" f.color ] [] ]
+                        , span [ class "race-n" ] [ text (String.fromInt (round (prog.publicRatio * toFloat Engine.publicGoal)) ++ "/" ++ String.fromInt Engine.publicGoal) ]
+                        ]
+                )
+                game.players
+        )
+
+
+threatMeter : Game -> Player -> Html Msg
+threatMeter game p =
+    let
+        prog =
+            Engine.goalProgress game p
+
+        pct =
+            String.fromFloat (prog.publicRatio * 100) ++ "%"
+    in
+    div [ class "threat", A.title "Settled groups toward the public win of 6" ]
+        [ span [] [ text "Public" ]
+        , span [ class "race-track" ] [ Html.i [ style "width" pct ] [] ]
+        , span [] [ text (String.fromInt (round (prog.publicRatio * toFloat Engine.publicGoal)) ++ "/6") ]
+        ]
+
+
+drawerLog : Game -> Html Msg
+drawerLog game =
+    div []
+        [ h2 [] [ text "Turn log" ]
+        , div [ class "log" ] (logEntries game)
+        ]
+
+
+drawerGoal : Game -> Html Msg
+drawerGoal game =
+    let
+        you =
+            Engine.getPlayer game 0
+
+        f =
+            factionOf you
+    in
+    div []
+        [ div [ class "cs-type", style "color" f.color ] [ text "Your patron" ]
+        , h2 [] [ text f.name ]
+        , p [ class "lead" ] [ text f.motto ]
+        , p [] [ text f.goalText ]
+        , p [] [ text (Engine.goalProgress game you).secretText ]
+        , heliosNudge you
+        , p [ class "ability" ] [ text f.ability ]
+        , raceList game
+        ]
+
+
 viewModal : Model -> Html Msg
 viewModal model =
     case model.modal of
@@ -1629,18 +1747,63 @@ viewModal model =
         CardSheet id ->
             shell model False (cardSheet model id)
 
+        Drawer "log" ->
+            case model.game of
+                Just game ->
+                    shell model False (drawerLog game)
+
+                Nothing ->
+                    text ""
+
+        Drawer "rules" ->
+            shell model False (div [] [ h2 [] [ text "How to play" ], div [ class "help-body" ] [ rulesBody ] ])
+
+        Drawer "goal" ->
+            case model.game of
+                Just game ->
+                    shell model False (drawerGoal game)
+
+                Nothing ->
+                    text ""
+
+        Drawer _ ->
+            text ""
+
 
 shell : Model -> Bool -> Html Msg -> Html Msg
-shell model wide inner =
-    div [ class "modal-back", classList [ ( "sheet-back", phone model ) ], onClick Backdrop ]
+shell model _ inner =
+    div
+        [ class "modal-back sheet-back"
+        , A.attribute "data-sheet" ""
+        , A.attribute "data-sheet-dismiss" (if canDismiss model.modal then "1" else "0")
+        , onClick Backdrop
+        ]
         [ div
-            [ class "modal"
-            , classList [ ( "wide", wide && not (phone model) ), ( "sheet", phone model ) ]
+            [ class "modal sheet"
+            , classList [ ( "sheet-wide", not (phone model) ) ]
+            , A.attribute "data-sheet-panel" ""
+            , A.attribute "data-snap" "half"
             , A.attribute "role" "dialog"
             , stopPropagationOn "click" (Decode.succeed ( NoOp, True ))
             ]
-            [ inner ]
+            [ button [ class "sheet-handle", A.attribute "data-sheet-handle" "", A.attribute "aria-label" "Drag sheet", A.type_ "button" ] []
+            , div [ class "sheet-body", A.attribute "data-sheet-body" "" ] [ inner ]
+            , button [ class "sheet-close", A.attribute "data-sheet-close" "", A.attribute "hidden" "", onClick CloseModal ] [ text "Close" ]
+            ]
         ]
+
+
+canDismiss : Modal -> Bool
+canDismiss modal =
+    case modal of
+        VictoryModal ->
+            False
+
+        Rolling _ ->
+            False
+
+        _ ->
+            True
 
 
 helpBody : Msg -> Html Msg
