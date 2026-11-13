@@ -68,6 +68,7 @@ type alias Model =
     , actionsReady : Bool
     , hintSeen : Bool
     , bannerKey : Maybe String
+    , stripMore : Bool
     }
 
 
@@ -106,6 +107,7 @@ type Msg
     | DismissHint
     | DismissBanner
     | OpenGoal
+    | ToggleStrip
     | SpeedUp
     | Backdrop
 
@@ -130,6 +132,7 @@ initUi width height seedInput =
     , actionsReady = True
     , hintSeen = False
     , bannerKey = Nothing
+    , stripMore = False
     }
 
 
@@ -564,20 +567,11 @@ actionBar model game =
                         "—"
                     )
                 ]
-            , span [ class "strip-k" ] [ text "acts" ]
             , span
-                [ classList [ ( "strip-atk", True ), ( "used", yourTurn && you.attackedThisTurn ) ]
+                [ class "strip-money"
                 , A.title
-                    (offers
-                        |> List.filter (\o -> o.band == "attack")
-                        |> List.head
-                        |> Maybe.map .reason
-                        |> Maybe.withDefault ""
-                    )
-                ]
-                [ text
                     (if not yourTurn then
-                        "Wait"
+                        "Waiting"
 
                      else if you.attackedThisTurn then
                         "Attack used"
@@ -586,10 +580,10 @@ actionBar model game =
                         "Attack free"
                     )
                 ]
-            , span [ class "strip-money" ] [ text ("$" ++ String.fromInt (Engine.totalMoney you)) ]
+                [ text ("$" ++ String.fromInt (Engine.totalMoney you)) ]
             ]
         , div [ class "strip-chips" ]
-            [ div [ class "strip-verbs" ] (List.map chip (verbChips offers))
+            [ div [ class "strip-verbs" ] (visibleVerbs model offers)
             , div [ class "strip-tail" ] (tailChips game you yourTurn selected offers model)
             ]
         ]
@@ -660,14 +654,44 @@ type alias Offer =
     }
 
 
-verbChips : List Offer -> List Offer
-verbChips offers =
+verbList : List Offer -> List Offer
+verbList offers =
     List.filter
         (\o ->
             o.enabled
                 && (o.band == "attack" || o.band == "special" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release" || o.label == "Leak Weights")
         )
         offers
+
+
+visibleVerbs : Model -> List Offer -> List (Html Msg)
+visibleVerbs model offers =
+    let
+        verbs =
+            verbList offers
+
+        shown =
+            if List.length verbs <= 2 then
+                verbs
+
+            else
+                List.take 2 verbs
+
+        more =
+            if List.length verbs <= 2 then
+                []
+
+            else
+                [ button [ class "chip", onClick ToggleStrip, A.title "More actions" ] [ text "More" ] ]
+
+        extra =
+            if model.stripMore then
+                div [ class "strip-more" ] (List.map chip (List.drop 2 verbs))
+
+            else
+                text ""
+    in
+    extra :: List.map chip shown ++ more
 
 
 tailChips : Game -> Player -> Bool -> Maybe Group -> List Offer -> Model -> List (Html Msg)
@@ -712,6 +736,43 @@ tailChips game you yourTurn selected offers model =
         ++ [ button [ class "chip ghost", onClick OpenGoal, A.title "Your goal and the compute race" ] [ text "Goal" ] ]
 
 
+shortLabel : String -> String
+shortLabel label =
+    case label of
+        "Control" ->
+            "Ctrl"
+
+        "Destroy" ->
+            "Dstr"
+
+        "Neutralize" ->
+            "Neut"
+
+        "Reorganize" ->
+            "Move"
+
+        "Release" ->
+            "Drop"
+
+        "Remove founder" ->
+            "Cut"
+
+        "Recruit" ->
+            "Join"
+
+        "Leak Weights" ->
+            "Leak"
+
+        "Ration" ->
+            "Rate"
+
+        "Swing" ->
+            "Wild"
+
+        _ ->
+            label
+
+
 chip : Offer -> Html Msg
 chip offer =
     button
@@ -721,7 +782,7 @@ chip offer =
         , A.title (if offer.tip == "" then offer.reason else offer.reason ++ " — " ++ offer.tip)
         , onClick offer.act
         ]
-        [ text offer.label ]
+        [ text (shortLabel offer.label) ]
 
 
 offerRow : Offer -> Html Msg
@@ -1803,56 +1864,69 @@ viewModal model =
             text ""
 
         Help ->
-            shell model True (helpBody CloseModal)
+            shell model (helpBody CloseModal) (text "")
 
         EventModal ->
-            shell model False (eventBody model)
+            shell model (eventBody model) (text "")
 
         AttackModal form ->
-            shell model False (attackBody model form False False)
+            let
+                parts =
+                    attackBody model form False False
+            in
+            shell model parts.body parts.foot
 
         Rolling form ->
-            shell model False (attackBody model form True False)
+            let
+                parts =
+                    attackBody model form True False
+            in
+            shell model parts.body parts.foot
 
         RollResult form ->
-            shell model False (attackBody model form False True)
+            let
+                parts =
+                    attackBody model form False True
+            in
+            shell model parts.body parts.foot
 
         VictoryModal ->
-            shell model True (victoryBody model)
+            shell model (victoryBody model) (text "")
 
         ReorgModal id parent ->
-            shell model False (reorgBody model id parent)
+            shell model (reorgBody model id parent) (text "")
 
         Confirm title body yes ->
-            shell model False
+            shell model
                 (div []
                     [ h2 [] [ text title ]
                     , p [ class "lead" ] [ text body ]
-                    , div [ class "btn-row", style "justify-content" "flex-end" ]
-                        [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
-                        , button [ class "btn btn-danger", onClick yes ] [ text "Release" ]
-                        ]
+                    ]
+                )
+                (div [ class "btn-row", style "justify-content" "flex-end" ]
+                    [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
+                    , button [ class "btn btn-danger", onClick yes ] [ text "Release" ]
                     ]
                 )
 
         CardSheet id ->
-            shell model False (cardSheet model id)
+            shell model (cardSheet model id) (text "")
 
         Drawer "log" ->
             case model.game of
                 Just game ->
-                    shell model False (drawerLog game)
+                    shell model (drawerLog game) (text "")
 
                 Nothing ->
                     text ""
 
         Drawer "rules" ->
-            shell model False (div [] [ h2 [] [ text "How to play" ], div [ class "help-body" ] [ rulesBody ] ])
+            shell model (div [] [ h2 [] [ text "How to play" ], div [ class "help-body" ] [ rulesBody ] ]) (text "")
 
         Drawer "goal" ->
             case model.game of
                 Just game ->
-                    shell model False (drawerGoal game)
+                    shell model (drawerGoal game) (text "")
 
                 Nothing ->
                     text ""
@@ -1861,8 +1935,8 @@ viewModal model =
             text ""
 
 
-shell : Model -> Bool -> Html Msg -> Html Msg
-shell model _ inner =
+shell : Model -> Html Msg -> Html Msg -> Html Msg
+shell model body foot =
     div
         [ class "modal-back sheet-back"
         , A.attribute "data-sheet" ""
@@ -1879,7 +1953,8 @@ shell model _ inner =
             , stopPropagationOn "click" (Decode.succeed ( NoOp, True ))
             ]
             [ button [ class "sheet-handle", A.attribute "data-sheet-handle" "", A.attribute "aria-label" "Drag sheet", A.type_ "button" ] []
-            , div [ class "sheet-body", A.attribute "data-sheet-body" "" ] [ inner ]
+            , div [ class "sheet-body", A.attribute "data-sheet-body" "" ] [ body ]
+            , div [ class "sheet-foot" ] [ foot ]
             , button [ class "sheet-close", A.attribute "data-sheet-close" "", A.attribute "hidden" "", onClick CloseModal ] [ text "Close" ]
             ]
         ]
@@ -2007,16 +2082,18 @@ eventBody model =
                 ]
 
 
-attackBody : Model -> AttackForm -> Bool -> Bool -> Html Msg
+attackBody : Model -> AttackForm -> Bool -> Bool -> { body : Html Msg, foot : Html Msg }
 attackBody model form spinning done =
     case model.game of
         Nothing ->
-            text ""
+            { body = text "", foot = text "" }
 
         Just game ->
             case Engine.findInstance game form.targetId of
                 Nothing ->
-                    div [] [ p [] [ text "That group is gone." ], button [ class "btn", onClick CloseModal ] [ text "Close" ] ]
+                    { body = p [] [ text "That group is gone." ]
+                    , foot = button [ class "btn", onClick CloseModal ] [ text "Close" ]
+                    }
 
                 Just target ->
                     let
@@ -2031,7 +2108,8 @@ attackBody model form spinning done =
                             roll =
                                 Maybe.withDefault { a = 1, b = 1, sum = 2, strength = 0, success = False, kind = "", targetName = "", attackerName = "" } game.lastRoll
                         in
-                        div []
+                        { body =
+                            div []
                             [ div [ class "k" ] [ text (kindLabel form.kind) ]
                             , h2 [] [ text card.name ]
                             , div [ class "dice-row" ]
@@ -2053,13 +2131,14 @@ attackBody model form spinning done =
                                         ]
                                     ]
                                 ]
-                            , if spinning then
+                            ]
+                        , foot =
+                            if spinning then
                                 text ""
 
-                              else
-                                div [ class "btn-row", style "justify-content" "flex-end" ]
-                                    [ button [ class "btn btn-primary", onClick CloseModal ] [ text "Continue" ] ]
-                            ]
+                            else
+                                button [ class "btn btn-primary", onClick CloseModal ] [ text "Continue" ]
+                        }
 
                     else
                         let
@@ -2088,14 +2167,17 @@ attackBody model form spinning done =
                                 Engine.freeParents you
                         in
                         if List.isEmpty usable then
-                            div []
-                                [ h2 [] [ text (kindLabel form.kind ++ " " ++ card.name) ]
-                                , p [ class "lead" ] [ text "No legal attacker." ]
-                                , button [ class "btn", onClick CloseModal ] [ text "Close" ]
-                                ]
+                            { body =
+                                div []
+                                    [ h2 [] [ text (kindLabel form.kind ++ " " ++ card.name) ]
+                                    , p [ class "lead" ] [ text "No legal attacker." ]
+                                    ]
+                            , foot = button [ class "btn", onClick CloseModal ] [ text "Close" ]
+                            }
 
                         else
-                            div []
+                            { body =
+                                div []
                                 [ h2 [] [ text (kindLabel form.kind) ]
                                 , h2 [] [ text card.name ]
                                 , p [ class "lead" ] [ text (card.flavor ++ (if card.parody then " (A parody card. Satire, not a factual claim.)" else "")) ]
@@ -2155,11 +2237,13 @@ attackBody model form spinning done =
                                     ]
                                 , oddsLadder game you form.attacker target form.kind (min money Engine.maxAttackSpend) spend
                                 , p [ class "defender-note" ] [ text "The defender may spend money after you confirm, which can lower these odds. A single attack can spend at most 4 dollars, and each dollar adds 2 strength." ]
-                                , div [ class "btn-row", style "justify-content" "flex-end" ]
+                                ]
+                            , foot =
+                                div [ class "btn-row", style "justify-content" "flex-end" ]
                                     [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
                                     , button [ class "btn btn-primary", onClick Launch ] [ text "Roll 2d6" ]
                                     ]
-                                ]
+                            }
 
 
 reorgBody : Model -> String -> Parent -> Html Msg

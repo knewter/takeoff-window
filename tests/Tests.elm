@@ -112,6 +112,82 @@ suite =
                         , \_ -> Expect.equal False (logHas "You controls" first.game)
                         ]
                         ()
+            , test "control and destroy resolve against the wildcard and the listening service" <|
+                \_ ->
+                    let
+                        held =
+                            fresh "helios"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 1 "fast-follow" Patron)
+                                |> (\g -> Engine.ownCard g 1 "listening-service" Patron)
+
+                        fast =
+                            findCard held 1 "fast-follow"
+
+                        service =
+                            findCard held 1 "listening-service"
+
+                        controlled =
+                            Engine.applyAction (Engine.withRolls [ ( 1, 1 ) ] held) (Attack Control PatronAtk fast.instanceId 4 Nothing)
+
+                        destroyed =
+                            Engine.applyAction (Engine.withRolls [ ( 1, 1 ) ] held) (Attack Destroy PatronAtk service.instanceId 0 Nothing)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True controlled.ok
+                        , \_ -> Expect.equal (Just True) (Maybe.map .success controlled.game.lastRoll)
+                        , \_ -> Expect.equal (Just 0) (ownedBy controlled.game fast.instanceId)
+                        , \_ -> Expect.equal True destroyed.ok
+                        , \_ -> Expect.notEqual Nothing destroyed.game.lastRoll
+                        ]
+                        ()
+            , test "recruit, ration, swing, and remove founder all resolve" <|
+                \_ ->
+                    let
+                        cult =
+                            fresh "pause"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 0 "care-forum" Patron)
+
+                        forum =
+                            findCard cult 0 "care-forum"
+
+                        recruited =
+                            Engine.applyAction cult (Invoke forum.instanceId)
+
+                        jacket =
+                            fresh "helios"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 0 "green-jacket" Patron)
+
+                        rationed =
+                            Engine.applyAction jacket (Invoke (findCard jacket 0 "green-jacket").instanceId)
+
+                        wild =
+                            fresh "helios"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 0 "fast-follow" Patron)
+
+                        swung =
+                            Engine.applyAction wild (Invoke (findCard wild 0 "fast-follow").instanceId)
+
+                        agency =
+                            fresh "directorate"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 0 "listening-service" Patron)
+                                |> (\g -> Engine.ownCard g 1 "fast-follow" Patron)
+
+                        removed =
+                            Engine.applyAction agency (Invoke (findCard agency 0 "listening-service").instanceId)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True recruited.ok
+                        , \_ -> Expect.equal True rationed.ok
+                        , \_ -> Expect.equal True swung.ok
+                        , \_ -> Expect.equal True removed.ok
+                        , \_ -> Expect.equal Nothing (ownedBy removed.game (findCard agency 1 "fast-follow").instanceId)
+                        ]
+                        ()
             ]
         , describe "income"
             [ test "opening income uses the plural verb for You" <|

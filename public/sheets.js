@@ -39,14 +39,6 @@
     panel.style.bottom = "";
   }
 
-  function hoistFoot(panel, body) {
-    if (!body) return;
-    var row = body.querySelector(".btn-row");
-    if (!row || row.parentElement === panel) return;
-    row.classList.add("sheet-foot");
-    panel.appendChild(row);
-  }
-
   function mount(root) {
     var panel = root.querySelector("[data-sheet-panel]");
     var handle = root.querySelector("[data-sheet-handle]");
@@ -58,19 +50,12 @@
       root.__sheet = "desktop";
       return;
     }
-    if (root.__sheet === "phone") {
-      hoistFoot(panel, body);
-      return;
-    }
+    if (root.__sheet === "phone") return;
     root.__sheet = "phone";
 
     var dismissible = root.getAttribute("data-sheet-dismiss") !== "0";
     var snap = root.getAttribute("data-sheet-open") || "half";
     var drag = null;
-    hoistFoot(panel, body);
-    if (body) {
-      new MutationObserver(function () { hoistFoot(panel, body); }).observe(body, { childList: true, subtree: true });
-    }
 
     function apply(px, animate) {
       var h = viewport();
@@ -82,7 +67,6 @@
       panel.style.height = next + "px";
       var name = next < 48 ? "closed" : nearest(next, h);
       panel.setAttribute("data-snap", name);
-      if (body) body.style.overflowY = "auto";
     }
 
     function go(name, animate) {
