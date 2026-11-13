@@ -180,11 +180,37 @@
     });
   }
 
-  window.addEventListener("resize", scan);
+  var coachPinned = "";
+  function pinCoach() {
+    var el = document.querySelector(".gcard.coach-target");
+    if (!el) return;
+    var id = el.getAttribute("data-coach") || "";
+    if (!id || coachPinned === id) return;
+    var scroller = el.closest(".phone-stage") || el.closest(".col-center");
+    if (!scroller) {
+      coachPinned = id;
+      return;
+    }
+    var s = scroller.getBoundingClientRect();
+    var r = el.getBoundingClientRect();
+    if (r.height < 8) return;
+    var onScreen = r.top >= s.top - 1 && r.bottom <= s.bottom + 1;
+    if (!onScreen) {
+      scroller.scrollTop = Math.max(0, scroller.scrollTop + (r.top - s.top) - 8);
+    }
+    coachPinned = id;
+  }
+
+  window.addEventListener("resize", function () {
+    coachPinned = "";
+    scan();
+    pinCoach();
+  });
   if (document.body) {
     new MutationObserver(function () {
       scan();
       pinLogs();
+      pinCoach();
     }).observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scan);

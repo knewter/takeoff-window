@@ -963,7 +963,8 @@ label.field {
 .dock-actions .btn { white-space: nowrap; }
 
 .col-center { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.market-head { flex-shrink: 0; }
+.market-head { flex-shrink: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; }
+.market-head span { white-space: nowrap; }
 
 .you-card .ability {
   font-size: 11px;
@@ -2206,13 +2207,13 @@ body.phone .modal.sheet[data-snap="fit"] .sheet-body {
 body.phone .modal.sheet[data-snap="fit"] .sheet-body > div {
   flex: 0 0 auto;
   overflow: visible;
-  padding-bottom: 4.5rem;
+  padding-bottom: 5.5rem;
 }
 body:not(.phone) .sheet-body {
   padding-bottom: 0;
 }
 body:not(.phone) .sheet-body > div {
-  padding-bottom: 4.5rem;
+  padding-bottom: 5.5rem;
 }
 body.phone.landscape-phone .you-line { margin: 2px 8px; }
 body.phone.landscape-phone .coach { display: none; }
@@ -2220,15 +2221,29 @@ body.phone.landscape-phone .event-banner { display: none; }
 body.phone.landscape-phone .score-secret,
 body.phone.landscape-phone .score-bar { display: none; }
 body.phone.landscape-phone .score-cell { padding: 2px 4px; }
-body.phone.landscape-phone .topbar { padding: 2px 8px 4px; gap: 2px; }
+body.phone.landscape-phone .topbar {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 2px 8px;
+  gap: 4px 8px;
+}
+body.phone.landscape-phone .hud { width: auto; flex: 0 1 auto; min-height: 0; gap: 6px; }
+body.phone.landscape-phone .hud-meters { width: auto; flex: 1 1 auto; min-width: 0; }
+body.phone.landscape-phone .score-strip { flex: 1 1 220px; width: auto; min-width: 0; }
+body.phone.landscape-phone .panel-head.market-head { padding: 2px 8px; font-size: 10px; }
 body.phone.landscape-phone .hud-meter { font-size: 0.7rem; min-height: 28px; padding: 1px 6px; }
 body.phone.landscape-phone .turn-dock { padding: 2px 8px; }
 body.phone.landscape-phone .end-turn { min-height: 2.25rem; font-size: 0.85rem; padding: 0.2rem 0.7rem; }
-body.phone.landscape-phone .market { padding: 4px 8px 8px; gap: 6px; }
-body.phone.landscape-phone .market .gcard .art { height: 28px; }
+body.phone.landscape-phone .market { padding: 2px 8px 4px; gap: 4px; }
+body.phone.landscape-phone .market .gcard .art { height: 18px; }
 body.phone.landscape-phone .market .gcard .title,
-body.phone.landscape-phone .market .gcard .pills { display: none; }
-body.phone.landscape-phone .market .gcard .body { padding: 4px 8px 6px; }
+body.phone.landscape-phone .market .gcard .pills,
+body.phone.landscape-phone .market .gcard .type,
+body.phone.landscape-phone .market .gcard .nums,
+body.phone.landscape-phone .market .gcard .special-tag { display: none; }
+body.phone.landscape-phone .market .gcard .name { font-size: 15px; line-height: 1.15; margin: 0; }
+body.phone.landscape-phone .market .gcard .body { padding: 2px 8px 4px; }
 body.phone.landscape-phone .tabbar button { min-height: 36px; font-size: 9px; }
 
 .hud { display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 32px; flex-wrap: nowrap; }
