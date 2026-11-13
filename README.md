@@ -10,16 +10,18 @@ The window runs from 2026 through 2031, one round per quarter (20 rounds). If no
 
 You and each rival are a patron with power, income, and three control sockets. Groups in the open field — chipmakers, labs, grids, funds, headlines — can be attacked:
 
-- **Control** pulls a group, and the branch under it, into your tree. One successful control per turn, and you need a free socket.
+- **Control** pulls a group, and the branch under it, into your tree. You need a free socket.
 - **Neutralize** cuts a group loose. It and its subordinates return to the open field.
 - **Destroy** removes a group. Subordinates drift back to the open field.
+- **Lean** spends 2 money to bank +2 strength on your next attack against that group, up to +6. Leaning is not an attack.
 
 Roll 2d6. You succeed when the total is less than or equal to your strength and is not 12. A 12 always fails.
 
 ```
 strength = attacker power
          + transfer from the parent
-         + money spent (at most 3)
+         + 2 per dollar spent (at most 4 dollars)
+         + lean banked on that group
          + alignment and faction modifiers
          − resistance
          − the defender's parent
@@ -29,9 +31,9 @@ strength = attacker power
 
 Shared alignments help Control and hurt Neutralize or Destroy (±3). Opposite alignments do the reverse. Corporate/Open, Safety/Accelerationist, and Nationalist/Chaotic are the opposite pairs. Academic stands alone.
 
-Each turn you collect income, then take two actions. Only one of them may be an attack. The other can reorganize a group onto a free socket, release a group, attempt a weights leak (Open Wave, if you hold a lab), or pass. A headline is drawn at the start of each quarter.
+Each turn you collect income, then take two actions. Only one of them may be an attack, whether the roll succeeds or fails. After that attack, Control, Neutralize, and Destroy stay disabled until the next turn. The other action can lean, reorganize a group onto a free socket, release a group, attempt a weights leak (Open Wave, if you hold a lab), or pass. A headline is drawn at the start of each quarter.
 
-A group you just took is privileged and cannot be attacked yet. Most goals count that group only after the privilege ends. The Open Wave's four-group network counts immediately.
+A group you just took is privileged for four turns. It cannot be attacked, and it pays no income or compute, until the privilege ends. Secret goals that count groups count only settled groups.
 
 Trees are meant to grow past a single row. Low-socket groups hang under a group that still has a socket, once the patron already has someone on the chart.
 
@@ -39,16 +41,16 @@ Trees are meant to grow past a single row. Low-socket groups hang under a group 
 
 | Patron | Goal |
 | --- | --- |
-| Helios Dynamics | 30 compute. |
-| The Open Wave | A weights leak and three Open groups, or the Open Weights Collective plus four groups. |
-| The Pause Compact | Neutralize or destroy two Frontier groups that had an owner, or hold a regulator, a media group, and any third group. |
-| Directorate 7 | A Frontier group, a regulator, and five settled groups, or five settled groups including two Nationalist ones. |
+| Helios Dynamics | 20 compute, or a settled lab and a settled chipmaker with at least 12 compute. |
+| The Open Wave | A weights leak and three settled Open groups, or the Open Weights Collective plus four settled groups. |
+| The Pause Compact | Neutralize or destroy three Frontier groups that had an owner, or hold a settled regulator, a settled media group, and any third settled group. |
+| Directorate 7 | A settled Frontier group, a settled regulator, and three settled groups, or four settled groups including two Nationalist ones. |
 | The Long Plan | A chipmaker, a hyperscaler, and five settled groups, or 24 compute and a strict compute lead. |
-| Crown Sovereign | A power group, a datacenter, and a chipmaker, or 72 money and four settled groups. |
+| Crown Sovereign | A settled power group, datacenter, and chipmaker, or 64 money and three settled groups. |
 
 Anyone also wins by holding six settled groups.
 
-Helios hits labs and chipmakers a little harder. Open Wave hits Open groups harder and may spend 4 money to leak weights (succeeds on 10 or less, a 12 still fails). Pause is stronger when neutralizing or destroying Frontier groups. Directorate is stronger against founders and labs. Long Plan chipmakers pay an extra income and ignore export-control penalties. Crown's power groups and datacenters pay an extra income.
+Helios hits labs and chipmakers a little harder. Open Wave hits Open groups harder and may spend 4 money to leak weights (succeeds on 10 or less, a 12 still fails). Pause is stronger when neutralizing or destroying Frontier groups. Directorate is stronger against founders and labs. Long Plan chipmakers pay an extra income and ignore export-control penalties. Crown's power groups and datacenters pay an extra income, and Crown hits power, datacenters, and chipmakers a little harder.
 
 ## Build and run
 
@@ -62,7 +64,7 @@ npm run build     # dist/index.html, game.js, style.css, boot.js, CNAME
 npm run dev       # rebuild on change and serve dist/ on port 8000
 ```
 
-`npm run sim:smoke` plays a short batch and fails only if a game does not finish. The full `sim` script also checks that every faction wins between 8% and 30% and that the scripted human wins between 25% and 45%.
+`npm run sim:smoke` plays a short batch and fails only if a game does not finish. The full `sim` script also checks that every faction wins between 8% and 30%, that the scripted human wins between 25% and 45% overall, and that the human wins at least 15% with each faction.
 
 Open `dist/index.html` or the dev server. Useful query parameters:
 
@@ -75,18 +77,20 @@ From the browser console, `window.game` exposes `start`, `autoplay`, `playToEnd`
 
 ## Balance, from 360 seeded games
 
-Zero games failed to finish. The median length is 13 quarters (mean 13.1, 25th percentile 9, 75th percentile 18). About 97% of games grew a tree at least two levels deep (average depth 2.94).
+Zero games failed to finish. The median length is 12 quarters (mean 12.6, 25th percentile 10, 75th percentile 15). Every game grew a tree at least two levels deep (average depth 4.42). 23 games ran to the 2031 close, 125 ended on the public six-group win, and 212 ended on a secret goal.
 
 | Faction | Win rate |
 | --- | --- |
-| Helios Dynamics | 18.6% |
-| The Open Wave | 20.6% |
-| The Pause Compact | 11.7% |
-| Directorate 7 | 14.4% |
-| The Long Plan | 17.8% |
-| Crown Sovereign | 16.9% |
+| Helios Dynamics | 13.9% |
+| The Open Wave | 15.8% |
+| The Pause Compact | 16.9% |
+| Directorate 7 | 20.0% |
+| The Long Plan | 15.3% |
+| Crown Sovereign | 18.1% |
 
-A scripted but not omniscient human policy, rotating through every patron, won **30.8%** of 240 games against three rivals.
+A scripted but not omniscient human policy, rotating through every patron, won **67 of 240** games (27.9%) against three rivals. By the patron the human was dealt: Helios 22.5%, Open Wave 17.5%, Pause 50%, Directorate 20%, Long Plan 30%, Crown 27.5%.
+
+The previous build (360 games, seed 2026) had a median of 13 quarters and faction rates of Helios 18.6%, Open Wave 20.6%, Pause 11.7%, Directorate 14.4%, Long Plan 17.8%, Crown 16.9%, with the human policy at 30.8% and no per-faction split.
 
 ## Deploy
 

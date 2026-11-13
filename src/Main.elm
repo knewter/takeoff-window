@@ -29,6 +29,7 @@ type Msg
     | FromJs Decode.Value
     | GotTime Time.Posix
     | FinishRoll
+    | UnlockVictory
 
 
 type alias App =
@@ -120,10 +121,22 @@ update msg app =
         FinishRoll ->
             case app.ui.modal of
                 View.Rolling form ->
-                    emit (mapUi (\ui -> { ui | modal = View.RollResult form }) app) Cmd.none
+                    case app.ui.game of
+                        Just game ->
+                            if game.gameOver then
+                                presentVictory app
+
+                            else
+                                emit (mapUi (\ui -> { ui | modal = View.RollResult form }) app) Cmd.none
+
+                        Nothing ->
+                            ( app, Cmd.none )
 
                 _ ->
                     ( app, Cmd.none )
+
+        UnlockVictory ->
+            emit (mapUi (\ui -> { ui | actionsReady = True }) app) Cmd.none
 
         FromJs value ->
             fromJs value app
@@ -143,7 +156,11 @@ updateUi msg app =
             emit { app | ui = View.initUi ui.width ui.height ui.seedInput } Cmd.none
 
         GotoFaction ->
-            emit { app | ui = { ui | screen = View.FactionPick, modal = View.NoModal, game = Nothing, driveAll = False, busy = False } } Cmd.none
+            if ui.modal == View.VictoryModal && not ui.actionsReady then
+                ( app, Cmd.none )
+
+            else
+                emit { app | ui = { ui | screen = View.FactionPick, modal = View.NoModal, game = Nothing, driveAll = False, busy = False, actionsReady = True } } Cmd.none
 
         PickFaction id ->
             emit { app | ui = { ui | selectedFaction = Just id } } Cmd.none
@@ -296,7 +313,11 @@ updateUi msg app =
                         ui1 =
                             { ui | game = Just nextGame, modal = View.Rolling form }
                     in
-                    emit { app | ui = ui1 } (Process.sleep 650 |> Task.perform (\_ -> FinishRoll))
+                    if nextGame.gameOver then
+                        presentVictory { app | ui = ui1 }
+
+                    else
+                        emit { app | ui = ui1 } (Process.sleep 650 |> Task.perform (\_ -> FinishRoll))
 
                 _ ->
                     ( app, Cmd.none )
@@ -310,10 +331,17 @@ updateUi msg app =
                     afterAction { app | ui = { ui | modal = View.NoModal } }
 
                 View.VictoryModal ->
-                    emit { app | ui = { ui | modal = View.NoModal } } Cmd.none
+                    ( app, Cmd.none )
 
                 _ ->
                     emit { app | ui = { ui | modal = View.NoModal } } Cmd.none
+
+        ReviewBoard ->
+            if ui.modal == View.VictoryModal && ui.actionsReady then
+                emit { app | ui = { ui | modal = View.NoModal } } Cmd.none
+
+            else
+                ( app, Cmd.none )
 
         Backdrop ->
             case ui.modal of
@@ -334,6 +362,9 @@ updateUi msg app =
 
         DoLeak ->
             apply Leak app
+
+        DoLean id ->
+            apply (Lean id) app
 
         AskDrop id ->
             emit { app | ui = { ui | modal = View.Confirm "Release this group?" "It returns to the open field, along with any subordinates. This costs an action." (DoDrop id) } } Cmd.none
@@ -356,19 +387,23 @@ updateUi msg app =
             emit { app | ui = { ui | modal = View.VictoryModal } } Cmd.none
 
         Rematch ->
-            case ui.game of
-                Just game ->
-                    let
-                        faction =
-                            (Engine.getPlayer game 0).factionId
+            if ui.modal == View.VictoryModal && not ui.actionsReady then
+                ( app, Cmd.none )
 
-                        ui1 =
-                            { ui | selectedFaction = Just faction, seedInput = String.fromInt (modBy 1000000000 (app.now + game.turnNumber * 17 + 1)) }
-                    in
-                    bootGame { app | ui = ui1 } ui1.seedInput False False Nothing
+            else
+                case ui.game of
+                    Just game ->
+                        let
+                            faction =
+                                (Engine.getPlayer game 0).factionId
 
-                Nothing ->
-                    ( app, Cmd.none )
+                            ui1 =
+                                { ui | selectedFaction = Just faction, seedInput = String.fromInt (modBy 1000000000 (app.now + game.turnNumber * 17 + 1)) }
+                        in
+                        bootGame { app | ui = ui1 } ui1.seedInput False False Nothing
+
+                    Nothing ->
+                        ( app, Cmd.none )
 
         ShowHelp ->
             if View.phone ui && ui.screen == View.Play then
@@ -410,15 +445,7 @@ afterAction app =
     case app.ui.game of
         Just game ->
             if game.gameOver then
-                let
-                    ui =
-                        let
-                            base =
-                                app.ui
-                        in
-                        { base | busy = False, driveAll = False, modal = View.VictoryModal }
-                in
-                finish { app | ui = ui }
+                presentVictory app
 
             else
                 schedule app
@@ -463,7 +490,7 @@ schedule app =
 
         Just game ->
             if game.gameOver then
-                finish (mapUi (\ui -> { ui | busy = False, driveAll = False, modal = View.VictoryModal }) app)
+                presentVictory app
 
             else if shouldDrive app.ui game then
                 emit (mapUi (\ui -> { ui | busy = True }) app) (Process.sleep (toFloat (max 0 app.ui.speed)) |> Task.perform (\_ -> Tick))
@@ -525,9 +552,22 @@ bootGame app seedText skipReveal drive reply =
                 , selectedId = Nothing
                 , tab = View.TabTree
                 , seenEvent = Nothing
+                , actionsReady = True
             }
+
+        started =
+            { app | ui = if skipReveal then maybeEvent ui else ui, reply = orKeep reply app.reply }
     in
-    schedule { app | ui = ui, reply = orKeep reply app.reply }
+    if drive then
+        schedule started
+
+    else
+        case started.reply of
+            Just id ->
+                emit { started | reply = Nothing } (outgoing (replyValue id (stateValue (Just game))))
+
+            Nothing ->
+                emit started Cmd.none
 
 
 orKeep : Maybe Int -> Maybe Int -> Maybe Int
@@ -538,6 +578,28 @@ orKeep new old =
 
         Nothing ->
             old
+
+
+presentVictory : App -> ( App, Cmd Msg )
+presentVictory app =
+    let
+        shown =
+            mapUi
+                (\ui ->
+                    { ui
+                        | busy = False
+                        , driveAll = False
+                        , modal = View.VictoryModal
+                        , screen = View.Play
+                        , actionsReady = False
+                    }
+                )
+                app
+
+        ( app2, cmd ) =
+            finish shown
+    in
+    ( app2, Cmd.batch [ cmd, Process.sleep 800 |> Task.perform (\_ -> UnlockVictory) ] )
 
 
 finish : App -> ( App, Cmd Msg )
@@ -595,7 +657,14 @@ fromJs value app =
                                             base =
                                                 app.ui
                                         in
-                                        { base | game = Just done, screen = View.Play, modal = View.VictoryModal, busy = False, driveAll = False }
+                                        { base
+                                            | game = Just done
+                                            , screen = View.Play
+                                            , modal = if done.gameOver then View.VictoryModal else View.NoModal
+                                            , busy = False
+                                            , driveAll = False
+                                            , actionsReady = True
+                                        }
                                 }
 
                         Nothing ->
@@ -609,7 +678,19 @@ fromJs value app =
                                     runTurns (Maybe.withDefault 8 cmd.n) game
                             in
                             emit
-                                (mapUi (\ui -> { ui | game = Just done, screen = View.Play, busy = False, driveAll = False, modal = View.NoModal }) app)
+                                (mapUi
+                                    (\ui ->
+                                        { ui
+                                            | game = Just done
+                                            , screen = View.Play
+                                            , busy = False
+                                            , driveAll = False
+                                            , actionsReady = True
+                                            , modal = if done.gameOver then View.VictoryModal else View.NoModal
+                                        }
+                                    )
+                                    app
+                                )
                                 (outgoing (replyValue cmd.id (stateValue (Just done))))
 
                         Nothing ->

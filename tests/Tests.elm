@@ -60,7 +60,7 @@ suite =
                         high =
                             Engine.attackStrength game 0 PatronAtk target.instanceId Destroy 2 0
                     in
-                    Expect.equal (low.strength + 2) high.strength
+                    Expect.equal (low.strength + 4) high.strength
             , test "shared alignment helps a control attempt" <|
                 \_ ->
                     let
@@ -228,9 +228,17 @@ suite =
                         , \_ -> Expect.equal Nothing (Engine.victory privileged 0)
                         ]
                         ()
-            , test "Helios wins at 30 compute" <|
+            ,             test "Helios wins at 20 compute" <|
                 \_ ->
-                    expectContains "takeoff" (Engine.victory (setCompute (fresh "helios") 0 30) 0)
+                    expectContains "takeoff" (Engine.victory (setCompute (fresh "helios") 0 20) 0)
+            , test "Helios also wins with a lab, a chipmaker, and 12 compute" <|
+                \_ ->
+                    let
+                        game =
+                            ownMany "helios" [ "first-letter", "green-jacket" ]
+                                |> (\g -> setCompute g 0 12)
+                    in
+                    expectContains "lab and a chipmaker" (Engine.victory game 0)
             , test "Open Wave wins from a leak plus three Open groups" <|
                 \_ ->
                     let
@@ -241,7 +249,7 @@ suite =
                             game0.flags
                     in
                     expectContains "weights are out" (Engine.victory { game0 | flags = { flags | weightsLeak = True } } 0)
-            , test "Open Wave also wins with the collective and four groups, even while privileged" <|
+            , test "Open Wave wins with the collective and four settled groups" <|
                 \_ ->
                     let
                         game =
@@ -255,41 +263,36 @@ suite =
                                         game.players
                             }
                     in
-                    expectContains "Open Weights Collective" (Engine.victory privileged 0)
-            , test "Pause wins by removing two Frontier groups" <|
+                    Expect.all
+                        [ \_ -> expectContains "Open Weights Collective" (Engine.victory game 0)
+                        , \_ -> Expect.equal Nothing (Engine.victory privileged 0)
+                        ]
+                        ()
+            , test "Pause wins by removing three Frontier groups" <|
                 \_ ->
                     let
+                        short =
+                            fresh "pause"
+                                |> (\g -> setCaptured g [ "first-letter", "the-garden" ])
+
                         game =
                             fresh "pause"
-                                |> (\g ->
-                                        let
-                                            p =
-                                                Engine.getPlayer g 0
-                                        in
-                                        { g
-                                            | players =
-                                                List.map
-                                                    (\q ->
-                                                        if q.id == 0 then
-                                                            { p | capturedFrontier = [ "first-letter", "the-garden" ] }
-
-                                                        else
-                                                            q
-                                                    )
-                                                    g.players
-                                        }
-                                   )
+                                |> (\g -> setCaptured g [ "first-letter", "the-garden", "fast-follow" ])
                     in
-                    expectContains "two Frontier" (Engine.victory game 0)
+                    Expect.all
+                        [ \_ -> Expect.equal Nothing (Engine.victory short 0)
+                        , \_ -> expectContains "three Frontier" (Engine.victory game 0)
+                        ]
+                        ()
             , test "Pause also wins with a regulator, a headline, and a third group" <|
                 \_ ->
                     expectContains "referee" (Engine.victory (ownMany "pause" [ "model-bureau", "prestige-mag", "care-forum" ]) 0)
-            , test "Directorate wins with a frontier lab, a regulator, and five settled groups" <|
+            , test "Directorate wins with a frontier lab, a regulator, and three settled groups" <|
                 \_ ->
-                    expectContains "Frontier lab" (Engine.victory (ownMany "directorate" [ "first-letter", "model-bureau", "podcast-circuit", "soft-landing", "desert-builders" ]) 0)
-            , test "Directorate also wins with five groups and two Nationalist ones" <|
+                    expectContains "Frontier lab" (Engine.victory (ownMany "directorate" [ "first-letter", "model-bureau", "podcast-circuit" ]) 0)
+            , test "Directorate also wins with four groups and two Nationalist ones" <|
                 \_ ->
-                    expectContains "nationalist" (Engine.victory (ownMany "directorate" [ "island-foundry", "export-desk", "podcast-circuit", "soft-landing", "desert-builders" ]) 0)
+                    expectContains "nationalist" (Engine.victory (ownMany "directorate" [ "island-foundry", "export-desk", "podcast-circuit", "soft-landing" ]) 0)
             , test "Long Plan wins with a fab, a cloud, and five settled groups" <|
                 \_ ->
                     expectContains "fab, the cloud" (Engine.victory (ownMany "long-plan" [ "island-foundry", "rivercloud", "podcast-circuit", "soft-landing", "desert-builders" ]) 0)
@@ -350,6 +353,22 @@ ownMany faction ids =
 setCompute : Engine.Game -> Int -> Int -> Engine.Game
 setCompute game pid n =
     { game | players = List.map (\p -> if p.id == pid then { p | compute = n } else p) game.players }
+
+
+setCaptured : Engine.Game -> List String -> Engine.Game
+setCaptured game ids =
+    { game
+        | players =
+            List.map
+                (\p ->
+                    if p.id == 0 then
+                        { p | capturedFrontier = ids }
+
+                    else
+                        p
+                )
+                game.players
+    }
 
 
 nestOwned : Int -> ( Engine.Game, String, String )

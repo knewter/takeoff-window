@@ -108,7 +108,7 @@ chooseHuman game =
     in
     case scored of
         ( s, action ) :: _ ->
-            if s < 0.6 then
+            if s < 0 then
                 Pass
 
             else
@@ -151,6 +151,9 @@ scoreAction game player action =
 
         Leak ->
             14 + (Engine.goalProgress game player).secretRatio * 8
+
+        Lean id ->
+            scoreLean game player id False
 
         Attack kind _ targetId spend _ ->
             case Engine.findInstance game targetId of
@@ -246,6 +249,9 @@ scoreHuman game player action =
         Leak ->
             18
 
+        Lean id ->
+            scoreLean game player id True
+
         Attack kind attacker targetId spend _ ->
             case Engine.findInstance game targetId of
                 Nothing ->
@@ -254,30 +260,105 @@ scoreHuman game player action =
                 Just target ->
                     let
                         b =
-                            Engine.attackStrength game player.id attacker targetId kind spend 0
+                            Engine.attackStrength game player.id attacker targetId kind spend (expectedDefense game player target kind spend)
 
                         bonus =
                             goalBonus player.factionId (Engine.cardOf target) kind
 
+                        settled =
+                            List.length (List.filter (\g -> g.privilegedTurns <= 0) player.grove)
+
+                        tempo =
+                            if settled < 2 then
+                                toFloat (Engine.cardOf target).income * 2
+
+                            else
+                                0
+
+                        rival =
+                            case target.ownerId of
+                                Just oid ->
+                                    if oid == player.id then
+                                        0
+
+                                    else
+                                        let
+                                            n =
+                                                Engine.groupCount (Engine.getPlayer game oid)
+                                        in
+                                        if n >= 4 then
+                                            4
+
+                                        else if n >= 3 then
+                                            2
+
+                                        else
+                                            0
+
+                                Nothing ->
+                                    0
+
                         value =
                             case kind of
                                 Control ->
-                                    7 + desire player target * 1.15 + bonus + visibleThreat game player target
+                                    7 + desire player target * 1.15 + bonus + visibleThreat game player target + tempo + rival
 
                                 Neutralize ->
-                                    1 + visibleThreat game player target + (if player.factionId == "pause" then bonus else 0) - desire player target * 0.35
+                                    1 + visibleThreat game player target + rival + (if player.factionId == "pause" then bonus else 0) - desire player target * 0.35
 
                                 Destroy ->
-                                    visibleThreat game player target * 0.7 + (if player.factionId == "pause" then bonus else -(desire player target) * 0.8)
+                                    visibleThreat game player target * 0.7 + rival + (if player.factionId == "pause" then bonus else -(desire player target) * 0.8)
+
+                        trio =
+                            let
+                                kindName =
+                                    (Engine.cardOf target).type_
+                            in
+                            kindName == "power" || kindName == "datacenter" || kindName == "chipmaker"
+
+                        focus =
+                            if kind == Control && bonus > 0 && player.factionId == "directorate" then
+                                2
+
+                            else if kind == Control && bonus > 0 && player.factionId == "helios" then
+                                0.7
+
+                            else if kind == Control && player.factionId == "crown" && trio then
+                                2.6
+
+                            else
+                                0
 
                         ev =
-                            value * b.prob - toFloat spend * 0.45
+                            value * b.prob - toFloat spend * 0.2 + bonus * 0.05 + focus
                     in
                     if b.prob < 0.18 && Engine.groupCount player < 2 then
                         -8
 
                     else
                         ev
+
+
+expectedDefense : Engine.Game -> Engine.Player -> Engine.Group -> Engine.Kind -> Int -> Int
+expectedDefense game attacker target kind spend =
+    case target.ownerId of
+        Just oid ->
+            if oid == attacker.id then
+                0
+
+            else
+                let
+                    defender =
+                        Engine.getPlayer game oid
+                in
+                if defender.isAI || defender.agent == Engine.Reasonable then
+                    Engine.aiDefense game defender target attacker kind spend
+
+                else
+                    0
+
+        Nothing ->
+            0
 
 
 attackBreakdown : Engine.Game -> Engine.Player -> Action -> Engine.Breakdown
@@ -297,6 +378,33 @@ alignBonus b =
 
     else
         0
+
+
+scoreLean : Engine.Game -> Engine.Player -> String -> Bool -> Float
+scoreLean game player id human =
+    case Engine.findInstance game id of
+        Nothing ->
+            -20
+
+        Just target ->
+            let
+                pressed =
+                    Engine.pressureOn player id
+
+                worth =
+                    desire player target + goalBonus player.factionId (Engine.cardOf target) Control
+            in
+            if pressed >= 6 then
+                -4
+
+            else if player.attackedThisTurn then
+                2.6 + worth * 0.3
+
+            else if human && worth >= 8 then
+                0.8
+
+            else
+                -3
 
 
 desire : Engine.Player -> Engine.Group -> Float
@@ -342,17 +450,23 @@ goalBonus : String -> Card -> Kind -> Float
 goalBonus faction card kind =
     case faction of
         "helios" ->
-            toFloat card.compute * 3
+            toFloat card.compute * 4
+                + (if card.type_ == "lab" || card.type_ == "chipmaker" then
+                    6
+
+                   else
+                    0
+                  )
 
         "open-wave" ->
             (if List.member "Open" card.alignments || card.id == "open-weights" then
-                9
+                12
 
              else
                 0
             )
                 + (if card.type_ == "lab" then
-                    4
+                    5
 
                    else
                     0
@@ -374,13 +488,13 @@ goalBonus faction card kind =
 
         "directorate" ->
             (if List.member "Frontier" card.traits || card.type_ == "regulator" then
-                7
+                11
 
              else
                 0
             )
                 + (if List.member "Nationalist" card.alignments then
-                    5
+                    7
 
                    else
                     0
@@ -388,7 +502,7 @@ goalBonus faction card kind =
 
         "long-plan" ->
             (if card.type_ == "chipmaker" || card.type_ == "hyperscaler" then
-                8
+                12
 
              else
                 0
@@ -397,7 +511,7 @@ goalBonus faction card kind =
 
         "crown" ->
             if card.type_ == "power" || card.type_ == "datacenter" || card.type_ == "chipmaker" then
-                8
+                11
 
             else
                 toFloat card.income

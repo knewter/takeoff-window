@@ -23,6 +23,7 @@ type alias Report =
     , humanGames : Int
     , humanWins : Int
     , humanWinRate : Float
+    , humanByFaction : List ( String, Int, Int )
     }
 
 
@@ -67,6 +68,7 @@ run opts =
 
         else
             toFloat (List.length (List.filter (\g -> g.winnerSeat == Just 0) human)) / toFloat (List.length human)
+    , humanByFaction = humanLines human
     }
 
 
@@ -90,6 +92,18 @@ encode report =
         , ( "humanGames", Encode.int report.humanGames )
         , ( "humanWins", Encode.int report.humanWins )
         , ( "humanWinRate", Encode.float report.humanWinRate )
+        , ( "humanByFaction"
+          , Encode.list
+                (\( faction, games, wins ) ->
+                    Encode.object
+                        [ ( "faction", Encode.string faction )
+                        , ( "games", Encode.int games )
+                        , ( "wins", Encode.int wins )
+                        , ( "winRate", Encode.float (rate wins games) )
+                        ]
+                )
+                report.humanByFaction
+          )
         ]
 
 
@@ -106,6 +120,7 @@ type alias Row =
     , depth : Float
     , winner : Maybe String
     , winnerSeat : Maybe Int
+    , seatFaction : String
     , ending : Ending
     }
 
@@ -152,6 +167,7 @@ playMany n seed reasonable =
                 , depth = treeDepth done
                 , winner = Maybe.map (\id -> (Engine.getPlayer done id).factionId) done.winner
                 , winnerSeat = done.winner
+                , seatFaction = (Engine.getPlayer game1 0).factionId
                 , ending =
                     if not done.gameOver then
                         None
@@ -175,6 +191,22 @@ factionAt i =
             List.map .id Data.factions
     in
     List.drop (modBy (List.length ids) i) ids |> List.head |> Maybe.withDefault "helios"
+
+
+humanLines : List Row -> List ( String, Int, Int )
+humanLines rows =
+    List.map
+        (\id ->
+            let
+                played =
+                    List.filter (\row -> row.seatFaction == id) rows
+
+                wins =
+                    List.filter (\row -> row.winnerSeat == Just 0) played
+            in
+            ( id, List.length played, List.length wins )
+        )
+        (List.map .id Data.factions)
 
 
 countWins : List Row -> List ( String, Int )
