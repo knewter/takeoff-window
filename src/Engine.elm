@@ -20,6 +20,7 @@ module Engine exposing
     , applyAction
     , applyIncome
     , attackStrength
+    , bestValueSpend
     , canAttack
     , cardOf
     , checkVictory
@@ -713,7 +714,13 @@ effectiveIncome player g =
 
 effectiveCompute : Game -> Group -> Int
 effectiveCompute game g =
-    if g.privilegedTurns > 0 || game.flags.gpuShortage > 0 then
+    let
+        -- Helios labs and chipmakers start paying compute one turn early
+        -- (privilege counter 1). Money and attack immunity still wait out four.
+        heliosEarly =
+            g.privilegedTurns == 1 && heliosLabOrChip game g
+    in
+    if game.flags.gpuShortage > 0 || (g.privilegedTurns > 0 && not heliosEarly) then
         0
 
     else
@@ -726,6 +733,23 @@ effectiveCompute game g =
 
         else
             c
+
+
+heliosLabOrChip : Game -> Group -> Bool
+heliosLabOrChip game g =
+    case g.ownerId of
+        Just oid ->
+            let
+                owner =
+                    getPlayer game oid
+
+                kind =
+                    (cardOf g).type_
+            in
+            owner.factionId == "helios" && (kind == "lab" || kind == "chipmaker")
+
+        Nothing ->
+            False
 
 
 twoD6Prob : Int -> Float
@@ -2307,6 +2331,35 @@ suggestSpend game player attacker target kind =
             attackStrength game player.id attacker target.instanceId kind 0 0
     in
     step 0 { spend = 0, breakdown = zero }
+
+
+{-| The spend the attack dialog opens on. Prefer the most you can afford, up to
+4, unless the cheaper aim-spend buys more odds per dollar.
+-}
+bestValueSpend : Game -> Player -> Attacker -> Group -> Kind -> Int
+bestValueSpend game player attacker target kind =
+    let
+        cap =
+            min (totalMoney player) maxAttackSpend
+
+        aimed =
+            (suggestSpend game player attacker target kind).spend
+
+        perDollar s =
+            if s <= 0 then
+                0
+
+            else
+                (attackStrength game player.id attacker target.instanceId kind s 0).prob / toFloat s
+    in
+    if cap <= 0 then
+        0
+
+    else if aimed < cap && perDollar aimed > perDollar cap then
+        aimed
+
+    else
+        cap
 
 
 legalActions : Game -> List Action

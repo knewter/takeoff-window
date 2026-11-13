@@ -50,7 +50,9 @@ Trees are meant to grow past a single row. Low-socket groups hang under a group 
 
 Anyone also wins by holding six settled groups.
 
-Helios hits labs and chipmakers a little harder. Open Wave hits Open groups harder and may spend 4 money to leak weights (succeeds on 10 or less, a 12 still fails). Pause is stronger when neutralizing or destroying Frontier groups. Directorate is stronger against founders and labs. Long Plan chipmakers pay an extra income and ignore export-control penalties. Crown's power groups and datacenters pay an extra income, and Crown hits power, datacenters, and chipmakers a little harder.
+The action bar lists every action and why it is disabled. Control, Neutralize, and Destroy share the one attack. Lean, Reorganize, Release, Leak Weights, and Pass are the other action. Reorganize moves a group under the patron or another group with a free socket; each destination previews the transfer, the socket it frees, and the branch a neutralize would take with it.
+
+Helios hits labs and chipmakers a little harder, and those groups pay Compute on the last privileged turn, before their money starts. Open Wave hits Open groups harder and may spend 4 money to leak weights (succeeds on 10 or less, a 12 still fails). Pause is stronger when neutralizing or destroying Frontier groups. Directorate is stronger against founders and labs. Long Plan chipmakers pay an extra income and ignore export-control penalties. Crown's power groups and datacenters pay an extra income, and Crown hits power, datacenters, and chipmakers a little harder.
 
 ## Build and run
 
@@ -77,18 +79,18 @@ From the browser console, `window.game` exposes `start`, `autoplay`, `playToEnd`
 
 ## Balance, from 360 seeded games
 
-Zero games failed to finish. The median length is 12 quarters (mean 12.6, 25th percentile 10, 75th percentile 15). Every game grew a tree at least two levels deep (average depth 4.42). 23 games ran to the 2031 close, 125 ended on the public six-group win, and 212 ended on a secret goal.
+Zero games failed to finish. The median length is 12 quarters (mean 12.3, 25th percentile 10, 75th percentile 15).
 
 | Faction | Win rate |
 | --- | --- |
-| Helios Dynamics | 13.9% |
-| The Open Wave | 15.8% |
-| The Pause Compact | 16.9% |
-| Directorate 7 | 20.0% |
-| The Long Plan | 15.3% |
-| Crown Sovereign | 18.1% |
+| Helios Dynamics | 19.2% |
+| The Open Wave | 15.0% |
+| The Pause Compact | 15.3% |
+| Directorate 7 | 19.7% |
+| The Long Plan | 14.4% |
+| Crown Sovereign | 16.4% |
 
-A scripted but not omniscient human policy, rotating through every patron, won **67 of 240** games (27.9%) against three rivals. By the patron the human was dealt: Helios 22.5%, Open Wave 17.5%, Pause 50%, Directorate 20%, Long Plan 30%, Crown 27.5%.
+A scripted but not omniscient human policy, rotating through every patron, won **68 of 240** games (28.3%) against three rivals. By the patron the human was dealt: Helios 30%, Open Wave 17.5%, Pause 47.5%, Directorate 20%, Long Plan 27.5%, Crown 27.5%. Helios labs and chipmakers pay Compute on the last privileged turn, which is what lifts the human Helios seat to 30%.
 
 The previous build (360 games, seed 2026) had a median of 13 quarters and faction rates of Helios 18.6%, Open Wave 20.6%, Pause 11.7%, Directorate 14.4%, Long Plan 17.8%, Crown 16.9%, with the human policy at 30.8% and no per-faction split.
 

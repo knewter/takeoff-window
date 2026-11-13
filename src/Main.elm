@@ -63,6 +63,7 @@ init flags =
                             | numAI = clamp 2 3 f.numAI
                             , speed = if f.speed > 0 then f.speed else 420
                             , selectedFaction = f.faction
+                            , hintSeen = f.hintSeen
                         }
                    )
 
@@ -153,7 +154,11 @@ updateUi msg app =
             ( app, Cmd.none )
 
         GotoTitle ->
-            emit { app | ui = View.initUi ui.width ui.height ui.seedInput } Cmd.none
+            let
+                fresh =
+                    View.initUi ui.width ui.height ui.seedInput
+            in
+            emit { app | ui = { fresh | hintSeen = ui.hintSeen, numAI = ui.numAI } } Cmd.none
 
         GotoFaction ->
             if ui.modal == View.VictoryModal && not ui.actionsReady then
@@ -189,20 +194,10 @@ updateUi msg app =
             emit { app | ui = { ui | tab = tab, modal = if ui.modal == View.Help then View.NoModal else ui.modal } } Cmd.none
 
         Select id ->
-            let
-                next =
-                    { ui | selectedId = Just id }
-            in
-            emit
-                { app
-                    | ui =
-                        if View.phone next && ui.screen == View.Play then
-                            { next | modal = View.CardSheet id }
+            emit { app | ui = { ui | selectedId = Just id } } Cmd.none
 
-                        else
-                            next
-                }
-                Cmd.none
+        DismissHint ->
+            emit (mapUi (\base -> { base | hintSeen = True }) app) (outgoing (Encode.object [ ( "tag", Encode.string "dismissHint" ) ]))
 
         ViewPlayer id ->
             emit { app | ui = { ui | viewingPlayer = id, selectedId = Just "patron", tab = View.TabTree } } Cmd.none
@@ -236,7 +231,7 @@ updateUi msg app =
                                         List.head usable |> Maybe.withDefault PatronAtk
 
                                 sug =
-                                    Engine.suggestSpend game you attacker target kind
+                                    Engine.bestValueSpend game you attacker target kind
 
                                 parents =
                                     Engine.freeParents you
@@ -248,7 +243,7 @@ updateUi msg app =
                                     else
                                         List.head parents |> Maybe.withDefault Patron
                             in
-                            emit { app | ui = { ui | modal = View.AttackModal { targetId = id, kind = kind, attacker = attacker, spend = sug.spend, parent = parent } } } Cmd.none
+                            emit { app | ui = { ui | modal = View.AttackModal { targetId = id, kind = kind, attacker = attacker, spend = sug, parent = parent } } } Cmd.none
 
                         Nothing ->
                             ( app, Cmd.none )
@@ -263,9 +258,9 @@ updateUi msg app =
                         Just target ->
                             let
                                 sug =
-                                    Engine.suggestSpend game (Engine.getPlayer game 0) attacker target form.kind
+                                    Engine.bestValueSpend game (Engine.getPlayer game 0) attacker target form.kind
                             in
-                            emit { app | ui = { ui | modal = View.AttackModal { form | attacker = attacker, spend = sug.spend } } } Cmd.none
+                            emit { app | ui = { ui | modal = View.AttackModal { form | attacker = attacker, spend = sug } } } Cmd.none
 
                         Nothing ->
                             ( app, Cmd.none )
@@ -886,6 +881,7 @@ type alias BootFlags =
     , n : Int
     , speed : Int
     , now : Int
+    , hintSeen : Bool
     }
 
 
@@ -907,6 +903,7 @@ decodeFlags value =
                 , n = 20
                 , speed = 420
                 , now = 2026
+                , hintSeen = False
                 }
             )
             (Decode.maybe (Decode.field "seed" Decode.string))
@@ -922,15 +919,16 @@ decodeFlags value =
         |> Result.map
             (\partial ->
                 Decode.decodeValue
-                    (Decode.map5
-                        (\height headless n speed now ->
-                            { partial | height = height, headless = headless, n = n, speed = speed, now = now }
+                    (Decode.map6
+                        (\height headless n speed now hintSeen ->
+                            { partial | height = height, headless = headless, n = n, speed = speed, now = now, hintSeen = hintSeen }
                         )
                         (Decode.oneOf [ Decode.field "height" Decode.int, Decode.succeed 800 ])
                         (Decode.oneOf [ Decode.field "headless" Decode.bool, Decode.succeed False ])
                         (Decode.oneOf [ Decode.field "n" Decode.int, Decode.succeed 20 ])
                         (Decode.oneOf [ Decode.field "speed" Decode.int, Decode.succeed 420 ])
                         (Decode.oneOf [ Decode.field "now" Decode.int, Decode.succeed 2026 ])
+                        (Decode.oneOf [ Decode.field "hintSeen" Decode.bool, Decode.succeed False ])
                     )
                     value
                     |> Result.withDefault partial
@@ -949,6 +947,7 @@ decodeFlags value =
             , n = 20
             , speed = 420
             , now = 2026
+            , hintSeen = False
             }
 
 
