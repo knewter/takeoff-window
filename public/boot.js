@@ -29,7 +29,11 @@
       headless: q.get("headless") === "1",
       n: Number(q.get("n") || 20),
       speed: q.get("speed") ? Number(q.get("speed")) : 420,
-      now: Date.now()
+      now: Date.now(),
+      hintSeen: (function () {
+        try { return localStorage.getItem("takeoff-window-hint") === "1"; }
+        catch (e) { return false; }
+      })()
     }
   });
 
@@ -39,6 +43,10 @@
 
   app.ports.outgoing.subscribe(function (msg) {
     if (!msg) return;
+    if (msg.tag === "dismissHint") {
+      try { localStorage.setItem("takeoff-window-hint", "1"); }
+      catch (e) {}
+    }
     if (msg.tag === "state") state = msg.state;
     if (msg.tag === "reply") {
       var resolve = waiters.get(msg.id);

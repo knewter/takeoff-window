@@ -153,6 +153,47 @@ suite =
                         , \_ -> Expect.equal 4 grid.money
                         ]
                         ()
+            , test "Helios labs and chipmakers pay compute on the last privileged turn" <|
+                \_ ->
+                    let
+                        base =
+                            fresh "helios"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 0 "green-jacket" Patron)
+
+                        setPriv n g =
+                            { g
+                                | players =
+                                    List.map
+                                        (\p ->
+                                            if p.id == 0 then
+                                                { p | grove = List.map (\x -> { x | privilegedTurns = n }) p.grove }
+
+                                            else
+                                                p
+                                        )
+                                        g.players
+                            }
+
+                        early =
+                            Engine.applyIncome (setPriv 1 base) 0
+
+                        blocked =
+                            Engine.applyIncome (setPriv 2 base) 0
+
+                        other =
+                            fresh "pause"
+                                |> quiet
+                                |> (\g -> Engine.ownCard g 0 "green-jacket" Patron)
+                                |> setPriv 1
+                                |> (\g -> Engine.applyIncome g 0)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal 3 (Engine.getPlayer early 0).compute
+                        , \_ -> Expect.equal 0 (Engine.getPlayer blocked 0).compute
+                        , \_ -> Expect.equal 0 (Engine.getPlayer other 0).compute
+                        ]
+                        ()
             ]
         , describe "control, neutralize, destroy"
             [ test "neutralize returns a group and its subordinate to the open field" <|

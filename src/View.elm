@@ -65,6 +65,7 @@ type alias Model =
     , speed : Int
     , driveAll : Bool
     , actionsReady : Bool
+    , hintSeen : Bool
     }
 
 
@@ -99,6 +100,7 @@ type Msg
     | Rematch
     | ShowHelp
     | ShowEvent
+    | DismissHint
     | SpeedUp
     | Backdrop
 
@@ -121,6 +123,7 @@ initUi width height seedInput =
     , speed = 420
     , driveAll = False
     , actionsReady = True
+    , hintSeen = False
     }
 
 
@@ -285,6 +288,7 @@ viewDesktop model game =
     div [ style "display" "flex", style "flex-direction" "column", style "height" "100%", style "min-height" "0" ]
         [ topbar model game False
         , eventBanner game
+        , turnHint model
         , div [ class "board" ]
             [ div [ class "col" ]
                 [ youCard you game False
@@ -303,7 +307,7 @@ viewDesktop model game =
                     [ span [] [ text "The open field" ]
                     , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
                     ]
-                , div [ class "market" ] (marketCards game model.selectedId)
+                , div [ class "market" ] (marketCards game you model.selectedId)
                 ]
             , div [ class "col col-right" ]
                 [ div [ class "panel-head" ]
@@ -312,7 +316,7 @@ viewDesktop model game =
                     ]
                 , div [ class "rivals" ] (rivalCards model game)
                 ]
-            , dock model game False
+            , actionBar model game
             ]
         ]
 
@@ -354,7 +358,7 @@ viewPhone model game =
                             [ span [] [ text "The open field" ]
                             , span [] [ text (String.fromInt (List.length game.uncontrolled) ++ " in play · " ++ String.fromInt (List.length game.groupDeck) ++ " in the deck") ]
                             ]
-                        , div [ class "market" ] (marketCards game model.selectedId)
+                        , div [ class "market" ] (marketCards game you model.selectedId)
                         ]
 
                 TabLog ->
@@ -374,9 +378,10 @@ viewPhone model game =
     div [ class "play-root", style "display" "flex", style "flex-direction" "column", style "height" "100%", style "min-height" "0" ]
         [ topbar model game True
         , eventBanner game
+        , turnHint model
         , div [ class "phone-play" ]
             [ div [ class "phone-stage" ] [ stage ]
-            , dock model game True
+            , actionBar model game
             ]
         , tabBar model.tab
         ]
@@ -478,6 +483,7 @@ youCard you game compact =
                 text f.goalText
             , div [ class "goal-detail" ] [ text goal.secretText ]
             , div [ class "goal-detail race" ] [ text ("Compute race: " ++ computeRace game) ]
+            , heliosNudge you
             , div [ class "goal-detail" ] [ text ("Public win: " ++ goal.publicText ++ ".") ]
             , div [ class "progress" ] [ Html.i [ style "width" pct, style "background" f.color ] [] ]
             ]
@@ -489,8 +495,26 @@ youCard you game compact =
         ]
 
 
-dock : Model -> Game -> Bool -> Html Msg
-dock model game isPhone =
+reorgExplain : String
+reorgExplain =
+    "Reorganize moves your group under the patron or another of your groups with a free socket, to open sockets, raise attack/defense transfer, or spread risk across branches."
+
+
+turnHint : Model -> Html Msg
+turnHint model =
+    if model.hintSeen || model.screen /= Play then
+        text ""
+
+    else
+        div [ class "turn-hint" ]
+            [ p []
+                [ text "You have two actions. Only one may be an attack — Control, Neutralize, or Destroy — whether it hits or misses. Lean spends $2 to bank +2 strength on a group, then strike it later. A group you just took is privileged for 4 turns and does not count toward a goal until it settles." ]
+            , button [ class "btn btn-sm", onClick DismissHint ] [ text "Got it" ]
+            ]
+
+
+actionBar : Model -> Game -> Html Msg
+actionBar model game =
     let
         you =
             Engine.getPlayer game 0
@@ -498,85 +522,360 @@ dock model game isPhone =
         yourTurn =
             not game.gameOver && (Engine.current game).id == 0 && not model.busy && not model.driveAll
 
-        ( name, meta ) =
+        selected =
             case model.selectedId of
-                Just "patron" ->
-                    let
-                        viewer =
-                            Engine.getPlayer game model.viewingPlayer
-
-                        vf =
-                            factionOf viewer
-                    in
-                    ( vf.name, "Patron · Power " ++ String.fromInt vf.power ++ " · Income " ++ String.fromInt vf.income )
-
                 Just id ->
-                    case Engine.findInstance game id of
-                        Just g ->
-                            let
-                                card =
-                                    Engine.cardOf g
-
-                                owner =
-                                    case g.ownerId of
-                                        Just oid ->
-                                            (factionOf (Engine.getPlayer game oid)).short
-
-                                        Nothing ->
-                                            "Open"
-                            in
-                            ( card.name, card.title ++ " · " ++ owner )
-
-                        Nothing ->
-                            ( "Gone", "" )
+                    Engine.findInstance game id
 
                 Nothing ->
-                    if yourTurn then
-                        ( "Choose a group", "Click a card in the open field, on a tree, or in a rival's list." )
+                    Nothing
 
-                    else if game.gameOver then
-                        ( "The window has closed", "" )
+        offers =
+            actionOffers game you yourTurn selected
 
-                    else
-                        ( "Waiting on a rival", "" )
+        attacks =
+            List.filter (\o -> o.band == "attack") offers
 
-        actions =
-            if yourTurn then
-                attackButtons game model.selectedId
-                    ++ leakButton game you
-                    ++ [ button [ class "btn btn-ghost", onClick PassTurn ] [ text "Pass" ] ]
-
-            else if model.busy then
-                [ button [ class "btn btn-sm btn-ghost", onClick SpeedUp ] [ text "Speed up" ] ]
-
-            else
-                []
-
-        actions2 =
-            if game.gameOver then
-                actions ++ [ button [ class "btn btn-primary", onClick ShowVictory ] [ text "See the outcome" ] ]
-
-            else
-                actions
+        others =
+            List.filter (\o -> o.band /= "attack") offers
     in
-    div [ class "dock", classList [ ( "dock-phone", isPhone ) ] ]
-        [ if isPhone then
-            div [ class "dock-money" ] [ text ("$ " ++ String.fromInt (Engine.totalMoney you)), span [] [ text "Money" ] ]
+    div [ class "action-bar", class "dock" ]
+        [ div [ class "action-status" ]
+            [ span []
+                [ text
+                    (if yourTurn then
+                        "Actions left: " ++ String.fromInt game.actionsLeft ++ "/2"
+
+                     else
+                        "Actions left: —"
+                    )
+                ]
+            , span []
+                [ text
+                    (if not yourTurn then
+                        "Attack used: —"
+
+                     else if you.attackedThisTurn then
+                        "Attack used: yes"
+
+                     else
+                        "Attack used: no"
+                    )
+                ]
+            , span [ class "action-money" ] [ text ("$ " ++ String.fromInt (Engine.totalMoney you)) ]
+            ]
+        , leanNudge you yourTurn game
+        , div [ class "action-catalog" ]
+            [ div [ class "action-band" ]
+                [ div [ class "action-band-label" ] [ text "Attack — 1 per turn" ]
+                , div [ class "action-rows" ] (List.map offerRow attacks)
+                ]
+            , div [ class "action-band" ]
+                [ div [ class "action-rows" ] (List.map offerRow others)
+                ]
+            ]
+        , selectedActions game you selected offers
+        , if game.gameOver then
+            button [ class "btn btn-primary", onClick ShowVictory ] [ text "See the outcome" ]
+
+          else if model.busy then
+            button [ class "btn btn-sm btn-ghost", onClick SpeedUp ] [ text "Speed up" ]
 
           else
             text ""
-        , div [ class "dock-info" ]
-            [ h3 [] [ text name ]
-            , div [ class "meta" ] [ text meta ]
-            ]
-        , div [ class "dock-actions" ]
-            (if List.isEmpty actions2 then
-                [ span [ class "hint" ] [ text "Watch the log. The rivals are moving." ] ]
+        ]
+
+
+leanNudge : Player -> Bool -> Game -> Html Msg
+leanNudge you yourTurn _ =
+    if yourTurn && you.attackedThisTurn && Engine.totalMoney you >= 2 then
+        p [ class "lean-nudge" ] [ text "You can still Lean on a target for next turn." ]
+
+    else
+        text ""
+
+
+selectedActions : Game -> Player -> Maybe Group -> List Offer -> Html Msg
+selectedActions game you selected offers =
+    let
+        about =
+            List.filter (\o -> o.band == "attack" || o.label == "Lean" || o.label == "Reorganize" || o.label == "Release") offers
+    in
+    div [ class "action-selected" ]
+        [ div [ class "action-band-label" ] [ text (selectedTitle game you selected) ]
+        , div [ class "action-picks" ]
+            (if selected == Nothing || modeless selected then
+                [ span [ class "hint" ] [ text "Select a group to see the actions that apply, with odds and cost." ] ]
 
              else
-                actions2
+                List.map offerRow about
             )
         ]
+
+
+modeless : Maybe Group -> Bool
+modeless selected =
+    selected == Nothing
+
+
+selectedTitle : Game -> Player -> Maybe Group -> String
+selectedTitle game you selected =
+    case selected of
+        Nothing ->
+            "No group selected"
+
+        Just g ->
+            let
+                where_ =
+                    case g.ownerId of
+                        Nothing ->
+                            "open field"
+
+                        Just oid ->
+                            if oid == you.id then
+                                "your group"
+
+                            else
+                                (factionOf (Engine.getPlayer game oid)).short ++ "'s group"
+            in
+            "On " ++ (Engine.cardOf g).name ++ " · " ++ where_
+
+
+type alias Offer =
+    { label : String
+    , band : String
+    , enabled : Bool
+    , reason : String
+    , act : Msg
+    , tip : String
+    }
+
+
+offerRow : Offer -> Html Msg
+offerRow offer =
+    button
+        [ class "offer"
+        , classList [ ( "off", not offer.enabled ), ( "offer-attack", offer.band == "attack" ) ]
+        , disabled (not offer.enabled)
+        , A.title (if offer.tip == "" then offer.reason else offer.tip)
+        , onClick offer.act
+        ]
+        [ span [ class "offer-name" ] [ text offer.label ]
+        , span [ class "offer-why" ] [ text offer.reason ]
+        ]
+
+
+actionOffers : Game -> Player -> Bool -> Maybe Group -> List Offer
+actionOffers game you yourTurn selected =
+    [ attackOffer game you yourTurn "Control" Control selected
+    , attackOffer game you yourTurn "Neutralize" Neutralize selected
+    , attackOffer game you yourTurn "Destroy" Destroy selected
+    , leanOffer game you yourTurn selected
+    , reorgOffer you yourTurn selected
+    , releaseOffer you yourTurn selected
+    , leakOffer game you yourTurn
+    , passOffer game yourTurn
+    ]
+
+
+attackOffer : Game -> Player -> Bool -> String -> Kind -> Maybe Group -> Offer
+attackOffer game you yourTurn label kind selected =
+    let
+        idle =
+            { label = label, band = "attack", enabled = False, reason = "", act = NoOp, tip = "" }
+    in
+    if not yourTurn then
+        { idle | reason = if game.gameOver then "Window closed" else "Waiting on a rival" }
+
+    else if you.attackedThisTurn then
+        { idle | reason = "Already attacked this turn" }
+
+    else
+        case selected of
+            Nothing ->
+                { idle
+                    | reason =
+                        if kind == Neutralize then
+                            "Select a rival's group"
+
+                        else
+                            "Select a group first"
+                }
+
+            Just g ->
+                if g.ownerId == Just you.id then
+                    { idle
+                        | reason =
+                            if kind == Control then
+                                "Already yours"
+
+                            else
+                                "Release it instead"
+                    }
+
+                else if kind == Neutralize && g.ownerId == Nothing then
+                    { idle | reason = "Already in the open field" }
+
+                else
+                    case firstAttacker game you g kind of
+                        Just atk ->
+                            let
+                                spend =
+                                    Engine.bestValueSpend game you atk g kind
+
+                                br =
+                                    Engine.attackStrength game you.id atk g.instanceId kind spend 0
+                            in
+                            { idle
+                                | enabled = True
+                                , reason = String.fromInt (round (br.prob * 100)) ++ "% at $" ++ String.fromInt spend
+                                , act = OpenAttack g.instanceId kind
+                            }
+
+                        Nothing ->
+                            { idle | reason = shortReason (reasonText (Engine.canAttack game you PatronAtk g kind)) }
+
+
+leanOffer : Game -> Player -> Bool -> Maybe Group -> Offer
+leanOffer game you yourTurn selected =
+    let
+        idle =
+            { label = "Lean", band = "setup", enabled = False, reason = "", act = NoOp, tip = "Spend $2 to bank +2 strength on your next attack against this group, up to +6." }
+    in
+    if not yourTurn then
+        { idle | reason = if game.gameOver then "Window closed" else "Waiting on a rival" }
+
+    else
+        case selected of
+            Nothing ->
+                { idle
+                    | reason =
+                        if Engine.totalMoney you < 2 then
+                            "Need $2"
+
+                        else
+                            "Select a group first"
+                }
+
+            Just g ->
+                if g.ownerId == Just you.id then
+                    { idle | reason = "Not on your own group" }
+
+                else if Engine.totalMoney you < 2 then
+                    { idle | reason = "Need $2" }
+
+                else if Engine.pressureOn you g.instanceId >= 6 then
+                    { idle | reason = "Already at +6" }
+
+                else
+                    { idle
+                        | enabled = True
+                        , reason = "Spend $2 · bank +" ++ String.fromInt (min 6 (Engine.pressureOn you g.instanceId + 2))
+                        , act = DoLean g.instanceId
+                    }
+
+
+reorgOffer : Player -> Bool -> Maybe Group -> Offer
+reorgOffer you yourTurn selected =
+    let
+        idle =
+            { label = "Reorganize", band = "setup", enabled = False, reason = "", act = NoOp, tip = reorgExplain }
+    in
+    if not yourTurn then
+        { idle | reason = "Waiting on a rival" }
+
+    else
+        case selected of
+            Just g ->
+                if g.ownerId == Just you.id && not (List.isEmpty (reorgParents you g)) then
+                    { idle | enabled = True, reason = "Open a socket, raise transfer, or spread risk", act = OpenReorg g.instanceId }
+
+                else if g.ownerId == Just you.id then
+                    { idle | reason = "No free socket to move to" }
+
+                else
+                    { idle | reason = "Select one of your groups" }
+
+            Nothing ->
+                { idle | reason = "Select one of your groups" }
+
+
+releaseOffer : Player -> Bool -> Maybe Group -> Offer
+releaseOffer you yourTurn selected =
+    let
+        idle =
+            { label = "Release", band = "setup", enabled = False, reason = "", act = NoOp, tip = "Return this group and its branch to the open field." }
+    in
+    if not yourTurn then
+        { idle | reason = "Waiting on a rival" }
+
+    else
+        case selected of
+            Just g ->
+                if g.ownerId == Just you.id then
+                    { idle | enabled = True, reason = "Send it and its branch back to the open field", act = AskDrop g.instanceId }
+
+                else
+                    { idle | reason = "Select one of your groups" }
+
+            Nothing ->
+                { idle | reason = "Select one of your groups" }
+
+
+leakOffer : Game -> Player -> Bool -> Offer
+leakOffer game you yourTurn =
+    let
+        idle =
+            { label = "Leak Weights", band = "setup", enabled = False, reason = "", act = NoOp, tip = "Open Wave spends $4 to try to leak the weights. Succeeds on 10 or less." }
+    in
+    if you.factionId /= "open-wave" then
+        { idle | reason = "Open Wave only" }
+
+    else if game.flags.weightsLeak then
+        { idle | reason = "Already leaked" }
+
+    else if not yourTurn then
+        { idle | reason = if game.gameOver then "Window closed" else "Waiting on a rival" }
+
+    else if not (List.any (\g -> (Engine.cardOf g).type_ == "lab") you.grove) then
+        { idle | reason = "Need a lab you control" }
+
+    else if Engine.totalMoney you < Engine.leakCost then
+        { idle | reason = "Need $4" }
+
+    else
+        { idle | enabled = True, reason = "Spend $4 · succeeds on 10 or less", act = DoLeak }
+
+
+passOffer : Game -> Bool -> Offer
+passOffer game yourTurn =
+    if yourTurn then
+        { label = "Pass / End turn", band = "turn", enabled = True, reason = "Ends the turn", act = PassTurn, tip = "Spend the rest of the turn doing nothing." }
+
+    else
+        { label = "Pass / End turn", band = "turn", enabled = False, reason = if game.gameOver then "Window closed" else "Waiting on a rival", act = NoOp, tip = "" }
+
+
+firstAttacker : Game -> Player -> Group -> Kind -> Maybe Attacker
+firstAttacker game you target kind =
+    let
+        usable =
+            (PatronAtk :: List.map (\g -> GroupAtk g.instanceId) you.grove)
+                |> List.filter
+                    (\atk ->
+                        case Engine.canAttack game you atk target kind of
+                            Ok _ ->
+                                True
+
+                            Err _ ->
+                                False
+                    )
+    in
+    if List.member PatronAtk usable then
+        Just PatronAtk
+
+    else
+        List.head usable
 
 
 attackButtons : Game -> Maybe String -> List (Html Msg)
@@ -667,17 +966,17 @@ leakButton game you =
         []
 
 
-marketCards : Game -> Maybe String -> List (Html Msg)
-marketCards game selected =
+marketCards : Game -> Player -> Maybe String -> List (Html Msg)
+marketCards game you selected =
     if List.isEmpty game.uncontrolled then
         [ div [ class "empty-tree" ] [ text "The open field is empty. The deck is exhausted." ] ]
 
     else
-        List.map (\g -> groupCard g (selected == Just g.instanceId) Nothing) game.uncontrolled
+        List.map (\g -> groupCard g (selected == Just g.instanceId) Nothing (Engine.pressureOn you g.instanceId)) game.uncontrolled
 
 
-groupCard : Group -> Bool -> Maybe Player -> Html Msg
-groupCard g selected owner =
+groupCard : Group -> Bool -> Maybe Player -> Int -> Html Msg
+groupCard g selected owner lean =
     let
         card =
             Engine.cardOf g
@@ -702,7 +1001,7 @@ groupCard g selected owner =
             , div [ class "name" ] [ text card.name ]
             , div [ class "title" ] [ text card.title ]
             , div [ class "pills" ] (pills (Engine.alignmentsOf g))
-            , div [ class "nums" ] (nums g owner)
+            , div [ class "nums" ] (nums g owner lean)
             ]
         ]
 
@@ -749,7 +1048,7 @@ rivalCards model game =
                                         , style "--tc" (typeOf card.type_).color
                                         , onClick (Select g.instanceId)
                                         ]
-                                        [ text card.name ]
+                                        [ text (card.name ++ leanMark (Engine.pressureOn (Engine.getPlayer game 0) g.instanceId)) ]
                                 )
                                 p.grove
                         )
@@ -911,7 +1210,7 @@ treeList game player selected =
                     [ div [ class "tr-type" ] [ text (typeOf card.type_).label ]
                     , div [ class "tr-name" ] [ text card.name ]
                     , div [ class "tr-nums" ]
-                        [ text ("P " ++ String.fromInt (displayPower g) ++ " · R " ++ String.fromInt (resistance g) ++ " · $ " ++ String.fromInt g.money) ]
+                        [ text ("P " ++ String.fromInt (displayPower g) ++ " · R " ++ String.fromInt (resistance g) ++ " · $ " ++ String.fromInt g.money ++ leanMark (Engine.pressureOn (Engine.getPlayer game 0) g.instanceId)) ]
                     ]
                 ]
 
@@ -1274,7 +1573,7 @@ drawNodes game player interactive compact selected (Placed node) =
                              , Svg.text_ [ SA.class "node-sub", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 16)) ] [ Svg.text ((typeOf card.type_).label ++ (if g.disabledTurns > 0 then " · DOWN" else "")) ]
                              ]
                                 ++ List.indexedMap (\i line -> Svg.text_ [ SA.class "node-title", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + 32 + toFloat i * 14)), SA.fontSize "13" ] [ Svg.text line ]) lines
-                                ++ [ Svg.text_ [ SA.class "node-num", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + node.selfH - 12)) ] [ Svg.text ("P " ++ String.fromInt (displayPower g) ++ "  R " ++ String.fromInt (resistance g) ++ "  $ " ++ String.fromInt g.money ++ (if g.privilegedTurns > 0 then "  PRIV" else "")) ]
+                                ++ [ Svg.text_ [ SA.class "node-num", SA.x (fnum (node.x + 10)), SA.y (fnum (node.y + node.selfH - 12)) ] [ Svg.text ("P " ++ String.fromInt (displayPower g) ++ "  R " ++ String.fromInt (resistance g) ++ "  $ " ++ String.fromInt g.money ++ (if g.privilegedTurns > 0 then "  PRIV" else "") ++ leanMark (Engine.pressureOn (Engine.getPlayer game 0) g.instanceId)) ]
                                    ]
                             )
 
@@ -1372,7 +1671,10 @@ rulesBody =
             , h3 [] [ text "A turn" ]
             , ul []
                 [ li [] [ text "At the start of your turn you collect income: the patron's income, plus each group's, paid onto that group. Compute-producing groups add Compute." ]
-                , li [] [ text "You have two actions. Only one of them may be an attack, whether the roll succeeds or fails. The other can lean on a group (2 money, +2 on your next attack against it, up to +6), release a group, reorganize it, attempt a weights leak, or pass." ]
+                , li [] [ text "You have two actions, shown in the action bar as Actions left. Only one of them may be an attack, whether the roll succeeds or fails. The bar marks Attack used: yes after that. The other action can be Lean, Reorganize, Release, a weights leak, or Pass." ]
+                , li [] [ text "Lean spends 2 money to bank +2 strength on your next attack against that group, up to +6. Banked lean is printed on the group. After you attack, you can still lean for next turn." ]
+                , li [] [ text reorgExplain ]
+                , li [] [ text "Release returns a group and its branch to the open field. Leak Weights is Open Wave only: spend 4, and succeed on 10 or less if you hold a lab. Pass ends the turn." ]
                 , li [] [ text "A new headline is drawn at the start of each quarter." ]
                 ]
             ]
@@ -1392,7 +1694,8 @@ rulesBody =
                 ]
             , h3 [] [ text "The rest" ]
             , ul []
-                [ li [] [ text "On a phone, use the tabs to move between your tree, rivals, the open field, the log, and these rules." ]
+                [ li [] [ text "Helios labs and chipmakers pay Compute on the last privileged turn. Their money, and every other group's income, still waits the full four." ]
+                , li [] [ text "On a phone, use the tabs to move between your tree, rivals, the open field, the log, and these rules. The action bar stays on screen." ]
                 , li [] [ text "The same seed always deals the same game. Add ?autoplay=1&seed=N to watch every seat, or call window.game from the console." ]
                 , li [] [ text disclaimer ]
                 ]
@@ -1562,6 +1865,7 @@ attackBody model form spinning done =
                                         , span [] [ text ("$ " ++ String.fromInt spend ++ " of " ++ String.fromInt money) ]
                                         ]
                                     ]
+                                , oddsLadder game you form.attacker target form.kind (min money Engine.maxAttackSpend) spend
                                 , p [ class "defender-note" ] [ text "The defender may spend money after you confirm, which can lower these odds. A single attack can spend at most 4 dollars, and each dollar adds 2 strength." ]
                                 , div [ class "btn-row", style "justify-content" "flex-end" ]
                                     [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
@@ -1587,11 +1891,7 @@ reorgBody model id current =
                             Engine.getPlayer game 0
 
                         parents =
-                            List.filter
-                                (\parent ->
-                                    parent /= Under id && g.parent /= Just parent && not (List.any (\d -> Under d.instanceId == parent) (subtree you id)) && List.member parent (Engine.freeParents you)
-                                )
-                                (Patron :: List.map (\x -> Under x.instanceId) you.grove)
+                            reorgParents you g
                     in
                     if List.isEmpty parents then
                         div []
@@ -1603,9 +1903,21 @@ reorgBody model id current =
                     else
                         div []
                             [ h2 [] [ text ("Reorganize " ++ (Engine.cardOf g).name) ]
-                            , p [ class "lead" ] [ text "Move this group, and its subordinates, to a free socket." ]
-                            , div [ class "parent-picks" ]
-                                (List.map (\parent -> button [ classList [ ( "on", parent == current ) ], onClick (SetParent parent) ] [ text (parentLabel you parent) ]) parents)
+                            , p [ class "lead" ] [ text reorgExplain ]
+                            , div [ class "reorg-options" ]
+                                (List.map
+                                    (\parent ->
+                                        button
+                                            [ class "reorg-option"
+                                            , classList [ ( "on", parent == current ) ]
+                                            , onClick (SetParent parent)
+                                            ]
+                                            [ span [ class "offer-name" ] [ text (parentLabel you parent) ]
+                                            , div [ class "reorg-lines" ] (List.map (\line -> span [] [ text line ]) (reorgPreview game you g parent))
+                                            ]
+                                    )
+                                    parents
+                                )
                             , div [ class "btn-row", style "justify-content" "flex-end" ]
                                 [ button [ class "btn btn-ghost", onClick CloseModal ] [ text "Cancel" ]
                                 , button [ class "btn btn-primary", onClick DoReorg ] [ text "Move" ]
@@ -1760,8 +2072,8 @@ pills xs =
     List.map (\a -> span [ class "pill", style "--pc" (alignMeta a).color ] [ text a ]) xs
 
 
-nums : Group -> Maybe Player -> List (Html Msg)
-nums g owner =
+nums : Group -> Maybe Player -> Int -> List (Html Msg)
+nums g owner lean =
     let
         card =
             Engine.cardOf g
@@ -1780,6 +2092,12 @@ nums g owner =
     , span [] [ text "I ", Html.b [] [ text (String.fromInt inc) ] ]
     , span [] [ text "$ ", Html.b [] [ text (String.fromInt g.money) ] ]
     ]
+        ++ (if lean > 0 then
+                [ span [ class "lean-bank" ] [ text ("Lean +" ++ String.fromInt lean) ] ]
+
+            else
+                []
+           )
 
 
 displayPower : Group -> Int
@@ -1824,6 +2142,95 @@ meterBox kind k v =
 inlineMeter : String -> String -> String -> Html Msg
 inlineMeter kind k v =
     span [ class ("meter " ++ kind) ] [ span [ class "k" ] [ text k ], span [ class "v" ] [ text v ] ]
+
+
+reorgParents : Player -> Group -> List Parent
+reorgParents you g =
+    List.filter
+        (\parent ->
+            parent /= Under g.instanceId && g.parent /= Just parent && not (List.any (\d -> Under d.instanceId == parent) (subtree you g.instanceId)) && List.member parent (Engine.freeParents you)
+        )
+        (Patron :: List.map (\x -> Under x.instanceId) you.grove)
+
+
+reorgPreview : Game -> Player -> Group -> Parent -> List String
+reorgPreview game you g parent =
+    let
+        support =
+            case parent of
+                Patron ->
+                    (factionOf you).power // 4
+
+                Under iid ->
+                    case Engine.findInstance game iid of
+                        Just host ->
+                            (Engine.cardOf host).transfer // 2
+
+                        Nothing ->
+                            0
+
+        hostName =
+            parentLabel you parent
+
+        leaving =
+            case g.parent of
+                Just old ->
+                    if old /= parent then
+                        let
+                            urgent =
+                                List.isEmpty (Engine.freeParents you)
+                        in
+                        [ "Frees a socket on " ++ parentLabel you old ++ (if urgent then " so you can Control again" else "") ]
+
+                    else
+                        []
+
+                Nothing ->
+                    []
+
+        moved =
+            List.length (subtree you g.instanceId)
+
+        risk =
+            case parent of
+                Patron ->
+                    "Branch risk: nothing sits above it, so a neutralize drops this branch only (" ++ String.fromInt moved ++ (if moved == 1 then " group)." else " groups).")
+
+                Under _ ->
+                    "Branch risk: neutralizing " ++ hostName ++ " would also drop " ++ String.fromInt moved ++ (if moved == 1 then " group." else " groups.")
+    in
+    [ "Attack +" ++ String.fromInt support ++ " from parent transfer"
+    , "Defense +" ++ String.fromInt support ++ " vs rivals"
+    ]
+        ++ leaving
+        ++ [ risk ]
+
+
+oddsLadder : Game -> Player -> Attacker -> Group -> Kind -> Int -> Int -> Html Msg
+oddsLadder game you attacker target kind cap current =
+    let
+        step s =
+            let
+                br =
+                    Engine.attackStrength game you.id attacker target.instanceId kind s 0
+            in
+            span
+                [ class "odds-step"
+                , classList [ ( "on", s == current ) ]
+                ]
+                [ text ("$" ++ String.fromInt s ++ " " ++ String.fromInt (round (br.prob * 100)) ++ "%") ]
+
+        zero =
+            Engine.attackStrength game you.id attacker target.instanceId kind 0 0
+
+        now =
+            Engine.attackStrength game you.id attacker target.instanceId kind current 0
+    in
+    div [ class "odds-ladder" ]
+        [ div [ class "odds-steps" ] (List.map step (List.range 0 cap))
+        , p [ class "odds-jump" ]
+            [ text ("Odds jump from " ++ String.fromInt (round (zero.prob * 100)) ++ "% at $0 to " ++ String.fromInt (round (now.prob * 100)) ++ "% at $" ++ String.fromInt current ++ ".") ]
+        ]
 
 
 parentLabel : Player -> Parent -> String
@@ -1876,6 +2283,51 @@ computeRace game =
         |> String.join " · "
 
 
+heliosNudge : Player -> Html Msg
+heliosNudge you =
+    if you.factionId /= "helios" then
+        text ""
+
+    else
+        let
+            away =
+                max 0 (Engine.agiCompute - you.compute)
+
+            hasLab =
+                List.any (\g -> (Engine.cardOf g).type_ == "lab" && g.privilegedTurns <= 0) you.grove
+
+            hasChip =
+                List.any (\g -> (Engine.cardOf g).type_ == "chipmaker" && g.privilegedTurns <= 0) you.grove
+
+            awayStack =
+                max 0 (12 - you.compute)
+        in
+        p [ class "helios-nudge" ]
+            [ text
+                (if you.compute >= Engine.agiCompute then
+                    "You have the compute to take off."
+
+                 else if hasLab && hasChip && awayStack == 0 then
+                    "You have a settled lab, a settled chipmaker, and 12 compute."
+
+                 else if hasLab && hasChip then
+                    "You're " ++ String.fromInt awayStack ++ " compute away from the lab and chipmaker win, and " ++ String.fromInt away ++ " away from takeoff."
+
+                 else
+                    "You're " ++ String.fromInt away ++ " compute away from takeoff."
+                )
+            ]
+
+
+leanMark : Int -> String
+leanMark n =
+    if n > 0 then
+        "  Lean +" ++ String.fromInt n
+
+    else
+        ""
+
+
 reasonText : Result String a -> String
 reasonText result =
     case result of
@@ -1884,6 +2336,33 @@ reasonText result =
 
         Ok _ ->
             ""
+
+
+shortReason : String -> String
+shortReason reason =
+    if String.contains "already launched" reason then
+        "Already attacked this turn"
+
+    else if String.contains "free control" reason || String.contains "no free" (String.toLower reason) then
+        "No free socket"
+
+    else if String.contains "privileged" reason then
+        "Privileged for now"
+
+    else if String.contains "already control" reason then
+        "Already yours"
+
+    else if String.contains "already neutral" reason then
+        "Already in the open field"
+
+    else if String.contains "drop it" reason then
+        "Release it instead"
+
+    else if reason == "" then
+        "Not legal"
+
+    else
+        reason
 
 
 signed : Int -> String

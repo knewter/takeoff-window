@@ -45,6 +45,16 @@ async function shot(page, file) {
   await page.waitForSelector(".faction-grid");
   await shot(page, "desktop-factions.png");
 
+  await page.goto("http://127.0.0.1:" + port + "/?autostart=1&seed=2026&faction=helios&reveal=0", { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".action-bar");
+  const deskContinue = page.locator(".modal button", { hasText: "Continue" });
+  if (await deskContinue.count()) await deskContinue.first().click();
+  await page.waitForSelector(".turn-hint");
+  await shot(page, "desktop-actions.png");
+  await page.locator(".turn-hint .btn", { hasText: "Got it" }).click();
+  await page.locator(".market .gcard").first().click();
+  await page.waitForSelector(".action-selected .offer");
+  await shot(page, "desktop-selected.png");
   await page.goto("http://127.0.0.1:" + port + "/?autostart=1&seed=11&faction=helios&reveal=0", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.game && window.game.state);
   await page.evaluate(() => window.game.playTurns(6));
@@ -62,6 +72,15 @@ async function shot(page, file) {
     if (card) card.scrollIntoView({ block: "center" });
   });
   await shot(mobile, "mobile-factions.png");
+  await mobile.goto("http://127.0.0.1:" + port + "/?autostart=1&seed=2026&faction=helios&reveal=0", { waitUntil: "domcontentloaded" });
+  await mobile.waitForSelector(".action-bar");
+  const phoneContinue = mobile.locator(".modal button", { hasText: "Continue" });
+  if (await phoneContinue.count()) await phoneContinue.first().click();
+  await shot(mobile, "mobile-actions.png");
+  await mobile.locator(".tabbar button", { hasText: "Open" }).click();
+  await mobile.locator(".market .gcard").first().click();
+  await mobile.waitForSelector(".action-selected .offer");
+  await shot(mobile, "mobile-selected.png");
   await mobile.goto("http://127.0.0.1:" + port + "/?autostart=1&seed=11&faction=helios&reveal=0", { waitUntil: "domcontentloaded" });
   await mobile.waitForFunction(() => window.game && window.game.state);
   const ended = await mobile.evaluate(async () => {

@@ -98,7 +98,7 @@ factions =
     , income = 4
     , sockets = 3
     , flavor = "A frontier lab convinced that every safety memo is a latency bug and that the only real alignment is a loss curve going down."
-    , ability = "+1 power when attacking Labs or Chipmakers."
+    , ability = "+1 power when attacking Labs or Chipmakers. Labs and chipmakers you hold pay Compute on the last privileged turn, before their money starts."
     , goalText = "Have 20 or more Compute, or hold a settled Lab and a settled Chipmaker with at least 12 Compute."
     , goalHint = "Win the compute race at 20, or settle a lab and a chipmaker and reach 12."
     }
