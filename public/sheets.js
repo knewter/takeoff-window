@@ -11,8 +11,22 @@
     return window.visualViewport ? window.visualViewport.height : window.innerHeight;
   }
 
-  function heightFor(name, h) {
+  function heightFor(name, h, panel) {
     var full = Math.round(h * 0.92);
+    if (name === "fit" && panel) {
+      var sheetBody = panel.querySelector("[data-sheet-body]");
+      panel.style.height = "auto";
+      if (sheetBody) {
+        sheetBody.style.flex = "none";
+        sheetBody.style.overflow = "visible";
+      }
+      var px = panel.scrollHeight;
+      if (sheetBody) {
+        sheetBody.style.flex = "";
+        sheetBody.style.overflow = "";
+      }
+      return Math.min(Math.max(px, 180), full);
+    }
     if (name === "full") return full;
     if (name === "half") return Math.min(Math.round(h * 0.56), full);
     if (name === "peek") return Math.min(176, full);
@@ -23,7 +37,7 @@
     var best = "half";
     var bestD = Infinity;
     ["peek", "half", "full"].forEach(function (name) {
-      var d = Math.abs(heightFor(name, h) - px);
+      var d = Math.abs(heightFor(name, h, null) - px);
       if (d < bestD) {
         bestD = d;
         best = name;
@@ -59,7 +73,7 @@
 
     function apply(px, animate) {
       var h = viewport();
-      var full = heightFor("full", h);
+      var full = heightFor("full", h, null);
       var next = Math.max(0, Math.min(full, px));
       panel.style.bottom = "0";
       panel.style.transform = "none";
@@ -71,8 +85,16 @@
 
     function go(name, animate) {
       snap = name;
-      apply(heightFor(name, viewport()), animate);
+      apply(heightFor(name, viewport(), panel), animate);
+      var log = body && body.querySelector(".log");
+      if (log) log.scrollTop = log.scrollHeight;
       panel.setAttribute("data-snap", name);
+      if (name === "fit") {
+        window.requestAnimationFrame(function () {
+          apply(heightFor("fit", viewport(), panel), false);
+          panel.setAttribute("data-snap", "fit");
+        });
+      }
     }
 
     function close() {
@@ -125,7 +147,7 @@
       }
       var h = viewport();
       var px = panel.getBoundingClientRect().height;
-      if (dismissible && (px < 56 || (vy > 1.15 && px < heightFor("half", h)))) {
+      if (dismissible && (px < 56 || (vy > 1.15 && px < heightFor("half", h, null)))) {
         close();
         return;
       }
@@ -152,8 +174,19 @@
     document.querySelectorAll("[data-sheet]").forEach(mount);
   }
 
+  function pinLogs() {
+    document.querySelectorAll(".log").forEach(function (log) {
+      log.scrollTop = log.scrollHeight;
+    });
+  }
+
   window.addEventListener("resize", scan);
-  if (document.body) new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
+  if (document.body) {
+    new MutationObserver(function () {
+      scan();
+      pinLogs();
+    }).observe(document.body, { childList: true, subtree: true });
+  }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scan);
   else scan();
   window.TakeoffSheets = { scan: scan };

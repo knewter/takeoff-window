@@ -2202,6 +2202,80 @@ body.phone .modal.sheet {
   padding-bottom: 0;
   max-height: 92dvh;
 }
+body.phone .modal.sheet[data-snap="fit"] {
+  height: auto !important;
+  max-height: 92dvh;
+}
+body.phone .modal.sheet[data-snap="fit"] .sheet-body,
+body.phone .modal.sheet[data-snap="fit"] .sheet-body > div {
+  flex: 0 0 auto;
+  overflow: visible;
+}
 body.phone.landscape-phone .you-line { margin: 2px 8px; }
+
+.hud { gap: 12px; min-height: 44px; }
+.hud-q { font-weight: 700; letter-spacing: 0.02em; }
+.hud-goal, .hud-cash { font-variant-numeric: tabular-nums; }
+.hud-goal {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  min-height: 44px;
+  padding: 0 4px;
+}
+.pips { display: flex; gap: 6px; align-items: center; }
+.pip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--text);
+  box-sizing: border-box;
+}
+.pip.on { background: var(--text); }
+.pip.spent { background: var(--red); border-color: var(--red); }
+.end-turn {
+  align-self: flex-end;
+  margin: 8px 16px 12px;
+  min-height: 48px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--amber);
+  color: #1a1408;
+  font-weight: 700;
+  font-size: 16px;
+}
+body.phone .end-turn { margin: 6px 12px; }
+.coach {
+  margin: 0 12px 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+}
+.act-stack { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.act {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-s);
+  background: var(--surface-3);
+  color: var(--text);
+  font: inherit;
+}
+.act.primary { background: var(--amber); color: #1a1408; border-color: var(--amber); }
+.act.off { opacity: 0.55; }
+.act-verb { font-weight: 700; font-size: 16px; }
+.act-line { font-size: 13px; }
+.card-sheet.compact h2 { margin: 4px 0; }
+.flash .lead { font-size: 18px; }
 body.phone.landscape-phone .event-banner { padding: 2px 8px; }
 body.phone.landscape-phone .event-banner h3 { font-size: 14px; }
