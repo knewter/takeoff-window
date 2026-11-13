@@ -38,6 +38,7 @@ type Modal
     | Confirm String String Msg
     | CardSheet String
     | Drawer String
+    | Flash String
 
 
 type alias AttackForm =
@@ -90,6 +91,7 @@ type Msg
     | SetParent Parent
     | SetSpend String
     | Launch
+    | CommitAttack Kind
     | CloseModal
     | ReviewBoard
     | PassTurn
@@ -326,8 +328,8 @@ viewDesktop model game =
                     ]
                 , div [ class "rivals" ] (rivalCards model game)
                 ]
-            , actionBar model game
             ]
+        , endTurn model game
         ]
 
 
@@ -388,56 +390,23 @@ viewPhone model game =
         , turnHint model
         , div [ class "phone-play" ]
             [ div [ class "phone-stage" ] [ stage ]
-            , actionBar model game
             ]
+        , endTurn model game
         , tabBar model.tab model.modal
         ]
 
 
 topbar : Model -> Game -> Bool -> Html Msg
 topbar model game isPhone =
-    let
-        cur =
-            Engine.current game
-
-        whose =
-            if game.gameOver then
-                span [ class "whose over" ] [ text "Window closed" ]
-
-            else if cur.isAI || model.busy || model.driveAll then
-                span [ class "whose rival" ] [ span [ class "busy-dot" ] [], text (cur.name ++ " is acting") ]
-
-            else
-                span [ class "whose" ] [ text ("Your turn · " ++ String.fromInt game.actionsLeft ++ (if game.actionsLeft == 1 then " action" else " actions")) ]
-    in
-    div [ class "topbar", classList [ ( "topbar-phone", isPhone ) ] ]
-        [ h1 [ class "brand" ] [ text (if isPhone then "Takeoff" else "Takeoff Window") ]
-        , div [ class "meta" ]
-            [ span [] [ Html.strong [] [ text (Engine.yearLabel game) ] ]
-            , span [] [ text (String.fromInt game.round ++ "/" ++ "20") ]
-            , if isPhone then
-                text ""
-
-              else
-                span [] [ text ("Seed " ++ String.fromInt game.seed) ]
+    div [ class "topbar hud", classList [ ( "topbar-phone", isPhone ) ] ]
+        [ span [ class "hud-q" ] [ text (Engine.yearLabel game) ]
+        , button [ class "hud-goal", onClick OpenGoal, A.title "Settled groups toward a public goal" ]
+            [ text (goalMark game) ]
+        , div [ class "pips", A.title (if youAttacked game then "Attack already used" else "Attack still available") ]
+            [ span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 2 ) ] ] []
+            , span [ classList [ ( "pip", True ), ( "on", game.actionsLeft >= 1 ), ( "spent", youAttacked game ) ] ] []
             ]
-        , if isPhone then
-            text ""
-
-          else
-            timeline game
-        , div [ class "spacer" ] []
-        , whose
-        , if isPhone then
-            text ""
-
-          else
-            button [ class "btn btn-sm btn-ghost", onClick ShowHelp ] [ text "Rules" ]
-        , if isPhone then
-            text ""
-
-          else
-            button [ class "btn btn-sm btn-ghost", onClick GotoTitle ] [ text "New Game" ]
+        , span [ class "hud-cash" ] [ text ("$" ++ String.fromInt (Engine.totalMoney (Engine.getPlayer game 0))) ]
         ]
 
 
@@ -529,11 +498,7 @@ turnHint model =
         text ""
 
     else
-        div [ class "turn-hint" ]
-            [ p []
-                [ text "You have two actions. Only one may be an attack — Control, Neutralize, or Destroy — whether it hits or misses. Lean spends $2 to bank +2 strength on a group, then strike it later. A group you just took is privileged for 4 turns and does not count toward a goal until it settles." ]
-            , button [ class "btn btn-sm", onClick DismissHint ] [ text "Got it" ]
-            ]
+        div [ class "coach" ] [ text "Tap a card to act on it" ]
 
 
 actionBar : Model -> Game -> Html Msg
@@ -903,7 +868,7 @@ attackOffer game you yourTurn label kind selected =
                             { idle
                                 | enabled = True
                                 , reason = String.fromInt (round (br.prob * 100)) ++ "% at $" ++ String.fromInt spend
-                                , act = OpenAttack g.instanceId kind
+                                , act = CommitAttack kind
                             }
 
                         Nothing ->
@@ -1910,7 +1875,20 @@ viewModal model =
                 )
 
         CardSheet id ->
-            shell model (cardSheet model id) (text "")
+            let
+                parts =
+                    cardParts model id
+            in
+            shell model parts.body parts.foot
+
+        Flash line ->
+            shell model
+                (div [ class "flash" ]
+                    [ h2 [] [ text "Result" ]
+                    , p [ class "lead" ] [ text line ]
+                    ]
+                )
+                (button [ class "btn btn-primary", onClick CloseModal ] [ text "Back to the board" ])
 
         Drawer "log" ->
             case model.game of
@@ -1986,7 +1964,13 @@ openSnap modal =
             "full"
 
         RollResult _ ->
-            "full"
+            "fit"
+
+        Flash _ ->
+            "fit"
+
+        CardSheet _ ->
+            "fit"
 
         _ ->
             "half"
@@ -2089,58 +2073,71 @@ attackBody model form spinning done =
             { body = text "", foot = text "" }
 
         Just game ->
-            case Engine.findInstance game form.targetId of
-                Nothing ->
-                    { body = p [] [ text "That group is gone." ]
-                    , foot = button [ class "btn", onClick CloseModal ] [ text "Close" ]
-                    }
+            if spinning || done then
+                let
+                    roll =
+                        Maybe.withDefault { a = 1, b = 1, sum = 2, strength = 0, success = False, kind = "", targetName = "", attackerName = "" } game.lastRoll
 
-                Just target ->
-                    let
-                        card =
-                            Engine.cardOf target
+                    name =
+                        case Engine.findInstance game form.targetId of
+                            Just target ->
+                                (Engine.cardOf target).name
 
-                        you =
-                            Engine.getPlayer game 0
-                    in
-                    if spinning || done then
-                        let
-                            roll =
-                                Maybe.withDefault { a = 1, b = 1, sum = 2, strength = 0, success = False, kind = "", targetName = "", attackerName = "" } game.lastRoll
-                        in
-                        { body =
-                            div []
-                            [ div [ class "k" ] [ text (kindLabel form.kind) ]
-                            , h2 [] [ text card.name ]
-                            , div [ class "dice-row" ]
-                                [ die (if spinning then 3 else roll.a) spinning
-                                , die (if spinning then 4 else roll.b) spinning
-                                , div []
-                                    [ div [ class "roll-sum" ] [ text (if spinning then "—" else String.fromInt roll.sum) ]
-                                    , div [ class ("roll-res" ++ (if spinning then "" else if roll.success then " ok" else " fail")) ]
-                                        [ text
-                                            (if spinning then
-                                                "ROLLING"
+                            Nothing ->
+                                if roll.targetName /= "" then
+                                    roll.targetName
 
-                                             else if roll.success then
-                                                "SUCCESS"
+                                else
+                                    "That group"
+                in
+                { body =
+                    div []
+                        [ div [ class "k" ] [ text (kindLabel form.kind) ]
+                        , h2 [] [ text name ]
+                        , p [ class "lead" ] [ text (roll.attackerName ++ " rolled against " ++ name ++ ".") ]
+                        , div [ class "dice-row" ]
+                            [ die (if spinning then 3 else roll.a) spinning
+                            , die (if spinning then 4 else roll.b) spinning
+                            , div []
+                                [ div [ class "roll-sum" ] [ text (if spinning then "—" else String.fromInt roll.sum) ]
+                                , div [ class ("roll-res" ++ (if spinning then "" else if roll.success then " ok" else " fail")) ]
+                                    [ text
+                                        (if spinning then
+                                            "ROLLING"
 
-                                             else
-                                                "FAILS"
-                                            )
-                                        ]
+                                         else if roll.success then
+                                            "SUCCESS"
+
+                                         else
+                                            "FAILS"
+                                        )
                                     ]
                                 ]
                             ]
-                        , foot =
-                            if spinning then
-                                text ""
-
-                            else
-                                button [ class "btn btn-primary", onClick CloseModal ] [ text "Continue" ]
-                        }
+                        ]
+                , foot =
+                    if spinning then
+                        text ""
 
                     else
+                        button [ class "btn btn-primary", onClick CloseModal ] [ text "Continue" ]
+                }
+
+            else
+                case Engine.findInstance game form.targetId of
+                    Nothing ->
+                        { body = p [] [ text "That group is gone." ]
+                        , foot = button [ class "btn", onClick CloseModal ] [ text "Close" ]
+                        }
+
+                    Just target ->
+                        let
+                            card =
+                                Engine.cardOf target
+
+                            you =
+                                Engine.getPlayer game 0
+                        in
                         let
                             usable =
                                 (PatronAtk :: List.map (\g -> GroupAtk g.instanceId) you.grove)
@@ -2343,7 +2340,7 @@ victoryBody model =
                     ]
                 , case game.lastRoll of
                     Just roll ->
-                        p [ class "lead" ] [ text ("Last roll " ++ String.fromInt roll.a ++ "+" ++ String.fromInt roll.b ++ "=" ++ String.fromInt roll.sum ++ (if roll.success then " — success." else " — fails.")) ]
+                        p [ class "lead" ] [ text (rollSentence roll) ]
 
                     Nothing ->
                         text ""
@@ -2353,6 +2350,272 @@ victoryBody model =
                     , button [ class "btn btn-primary", disabled (not model.actionsReady), onClick GotoFaction ] [ text "New Game" ]
                     ]
                 ]
+
+
+cardParts : Model -> String -> { body : Html Msg, foot : Html Msg }
+cardParts model id =
+    case model.game of
+        Nothing ->
+            { body = text "", foot = text "" }
+
+        Just game ->
+            if id == "patron" then
+                let
+                    viewer =
+                        Engine.getPlayer game model.viewingPlayer
+
+                    vf =
+                        factionOf viewer
+
+                    goal =
+                        Engine.goalProgress game viewer
+
+                    you =
+                        Engine.getPlayer game 0
+
+                    leak =
+                        leakOffer game you (not game.gameOver && (Engine.current game).id == 0)
+                in
+                { body =
+                    div [ class "card-sheet compact" ]
+                        [ div [ class "cs-type", style "color" vf.color ] [ text "Patron" ]
+                        , h2 [] [ text vf.name ]
+                        , p [ class "lead" ] [ text vf.motto ]
+                        , if viewer.id == 0 || game.gameOver then
+                            div [ class "goal-box" ] [ Html.strong [] [ text "Secret goal" ], text vf.goalText, div [ class "goal-detail" ] [ text goal.secretText ] ]
+
+                          else
+                            p [ class "lead" ] [ text "Their secret goal stays hidden." ]
+                        ]
+                , foot =
+                    div [ class "act-stack" ]
+                        (if viewer.id == 0 && you.factionId == "open-wave" then
+                            [ actButton leak leak.enabled ]
+
+                         else
+                            [ button [ class "btn", onClick CloseModal ] [ text "Close" ] ]
+                        )
+                }
+
+            else
+                case Engine.findInstance game id of
+                    Nothing ->
+                        { body = p [] [ text "That group is gone." ]
+                        , foot = button [ class "btn", onClick CloseModal ] [ text "Close" ]
+                        }
+
+                    Just g ->
+                        let
+                            card =
+                                Engine.cardOf g
+
+                            you =
+                                Engine.getPlayer game 0
+
+                            owner =
+                                case g.ownerId of
+                                    Just oid ->
+                                        (factionOf (Engine.getPlayer game oid)).name
+
+                                    Nothing ->
+                                        "Open field"
+                        in
+                        { body =
+                            div [ class "card-sheet compact" ]
+                                [ div [ class "cs-type" ] [ text ((typeOf card.type_).label ++ (if card.parody then " · parody" else "")) ]
+                                , h2 [] [ text card.name ]
+                                , p [ class "lead" ] [ text (card.title ++ " · " ++ owner) ]
+                                , specialTag card.special
+                                ]
+                        , foot = actStack game you g
+                        }
+
+
+actStack : Game -> Player -> Group -> Html Msg
+actStack game you g =
+    let
+        yourTurn =
+            not game.gameOver && (Engine.current game).id == 0
+
+        offers =
+            actionOffers game you yourTurn (Just g)
+
+        relevant =
+            if g.ownerId == Just you.id then
+                List.filter (\o -> o.label == "Reorganize" || o.label == "Release" || o.band == "special") offers
+
+            else
+                List.filter (\o -> o.band == "attack" || o.label == "Lean") offers
+
+        primary =
+            relevant
+                |> List.filter .enabled
+                |> List.head
+                |> Maybe.map .label
+    in
+    div [ class "act-stack" ]
+        (if List.isEmpty relevant then
+            [ p [ class "lead" ] [ text "Nothing to do with this card right now." ] ]
+
+         else
+            List.map (\o -> actButton o (primary == Just o.label)) relevant
+        )
+
+
+actButton : Offer -> Bool -> Html Msg
+actButton offer primary =
+    button
+        [ class "act"
+        , classList [ ( "primary", primary && offer.enabled ), ( "off", not offer.enabled ) ]
+        , disabled (not offer.enabled)
+        , A.title offer.tip
+        , onClick offer.act
+        ]
+        [ span [ class "act-verb" ] [ text (actVerb offer.label) ]
+        , span [ class "act-line" ] [ text (actLine offer) ]
+        ]
+
+
+actVerb : String -> String
+actVerb label =
+    case label of
+        "Control" ->
+            "Take control"
+
+        "Lean" ->
+            "Lean on it"
+
+        "Remove founder" ->
+            "Cut founder"
+
+        "Recruit" ->
+            "Recruit"
+
+        "Ration" ->
+            "Ration compute"
+
+        "Swing" ->
+            "Take the swing"
+
+        _ ->
+            label
+
+
+actLine : Offer -> String
+actLine offer =
+    if not offer.enabled then
+        offer.reason
+
+    else
+        case offer.label of
+            "Control" ->
+                chance offer ++ " · uses your attack"
+
+            "Neutralize" ->
+                chance offer ++ " · uses your attack"
+
+            "Destroy" ->
+                chance offer
+
+            "Lean" ->
+                "$2 for +2"
+
+            "Reorganize" ->
+                "Move it under a free socket"
+
+            "Release" ->
+                "Send it back to the open field"
+
+            "Recruit" ->
+                "Cult rite"
+
+            "Remove founder" ->
+                "Cut founder ($3)"
+
+            "Ration" ->
+                "Move 1 compute your way"
+
+            "Swing" ->
+                "A coin-flip quarter"
+
+            _ ->
+                offer.reason
+
+
+chance : Offer -> String
+chance offer =
+    case String.split "%" offer.reason of
+        n :: _ ->
+            String.trim n ++ "% chance"
+
+        [] ->
+            offer.reason
+
+
+endTurn : Model -> Game -> Html Msg
+endTurn model game =
+    let
+        you =
+            Engine.getPlayer game 0
+
+        yours =
+            not game.gameOver && (Engine.current game).id == 0 && not model.busy && not model.driveAll && model.modal == NoModal
+    in
+    if game.gameOver && model.modal == NoModal then
+        button [ class "end-turn", onClick ShowVictory ] [ text "See the outcome" ]
+
+    else if yours then
+        button [ class "end-turn", onClick PassTurn ]
+            [ text
+                ("End turn · "
+                    ++ String.fromInt game.actionsLeft
+                    ++ (if game.actionsLeft == 1 then
+                            " action left"
+
+                        else
+                            " actions left"
+                       )
+                )
+            ]
+
+    else
+        text ""
+
+
+youAttacked : Game -> Bool
+youAttacked game =
+    (Engine.getPlayer game 0).attackedThisTurn
+
+
+goalMark : Game -> String
+goalMark game =
+    let
+        you =
+            Engine.getPlayer game 0
+
+        n =
+            List.length (List.filter (\g -> g.privilegedTurns <= 0) you.grove)
+    in
+    String.fromInt n ++ "/6"
+
+
+rollSentence : { a : Int, b : Int, sum : Int, strength : Int, success : Bool, kind : String, targetName : String, attackerName : String } -> String
+rollSentence roll =
+    roll.attackerName
+        ++ " rolled "
+        ++ String.fromInt roll.a
+        ++ "+"
+        ++ String.fromInt roll.b
+        ++ "="
+        ++ String.fromInt roll.sum
+        ++ " against "
+        ++ roll.targetName
+        ++ (if roll.success then
+                " and succeeded."
+
+            else
+                " and failed."
+           )
 
 
 cardSheet : Model -> String -> Html Msg

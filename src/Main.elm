@@ -208,7 +208,17 @@ updateUi msg app =
             emit (mapUi (\base -> { base | stripMore = not base.stripMore }) app) Cmd.none
 
         Select id ->
-            emit { app | ui = { ui | selectedId = Just id, stripMore = False } } Cmd.none
+            let
+                seen =
+                    ui.hintSeen
+            in
+            emit { app | ui = { ui | selectedId = Just id, stripMore = False, modal = View.CardSheet id, hintSeen = True } }
+                (if seen then
+                    Cmd.none
+
+                 else
+                    outgoing (Encode.object [ ( "tag", Encode.string "dismissHint" ) ])
+                )
 
         DismissHint ->
             let
@@ -325,6 +335,73 @@ updateUi msg app =
                 _ ->
                     ( app, Cmd.none )
 
+        CommitAttack kind ->
+            case ( ui.selectedId, ui.game ) of
+                ( Just id, Just game ) ->
+                    case Engine.findInstance game id of
+                        Just target ->
+                            let
+                                you =
+                                    Engine.getPlayer game 0
+
+                                usable =
+                                    (PatronAtk :: List.map (\g -> GroupAtk g.instanceId) you.grove)
+                                        |> List.filter
+                                            (\atk ->
+                                                case Engine.canAttack game you atk target kind of
+                                                    Ok _ ->
+                                                        True
+
+                                                    Err _ ->
+                                                        False
+                                            )
+
+                                attacker =
+                                    if List.member PatronAtk usable then
+                                        PatronAtk
+
+                                    else
+                                        List.head usable |> Maybe.withDefault PatronAtk
+
+                                spend =
+                                    Engine.bestValueSpend game you attacker target kind
+
+                                parents =
+                                    Engine.freeParents you
+
+                                parent =
+                                    if List.member Patron parents then
+                                        Patron
+
+                                    else
+                                        List.head parents |> Maybe.withDefault Patron
+
+                                result =
+                                    Engine.applyAction game (Attack kind attacker id spend (Just parent))
+
+                                next =
+                                    if result.ok then
+                                        result.game
+
+                                    else
+                                        game
+
+                                form =
+                                    { targetId = id, kind = kind, attacker = attacker, spend = spend, parent = parent }
+                            in
+                            if next.gameOver then
+                                presentVictory { app | ui = { ui | game = Just next, modal = View.RollResult form } }
+
+                            else
+                                emit { app | ui = { ui | game = Just next, modal = View.RollResult form } }
+                                    (Process.sleep 1400 |> Task.perform (\_ -> Ui CloseModal))
+
+                        Nothing ->
+                            ( app, Cmd.none )
+
+                _ ->
+                    ( app, Cmd.none )
+
         Launch ->
             case ( ui.modal, ui.game ) of
                 ( View.AttackModal form, Just game ) ->
@@ -396,7 +473,35 @@ updateUi msg app =
             apply (Lean id) app
 
         DoInvoke id ->
-            apply (Invoke id) app
+            case ui.game of
+                Just game ->
+                    let
+                        result =
+                            Engine.applyAction game (Invoke id)
+
+                        next =
+                            if result.ok then
+                                result.game
+
+                            else
+                                game
+
+                        line =
+                            next.log
+                                |> List.reverse
+                                |> List.head
+                                |> Maybe.map .text
+                                |> Maybe.withDefault "Done."
+                    in
+                    if next.gameOver then
+                        presentVictory { app | ui = { ui | game = Just next } }
+
+                    else
+                        emit { app | ui = { ui | game = Just next, modal = View.Flash line } }
+                            (Process.sleep 1600 |> Task.perform (\_ -> Ui CloseModal))
+
+                Nothing ->
+                    ( app, Cmd.none )
 
         AskDrop id ->
             emit { app | ui = { ui | modal = View.Confirm "Release this group?" "It returns to the open field, along with any subordinates. This costs an action." (DoDrop id) } } Cmd.none
